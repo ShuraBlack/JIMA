@@ -26,7 +26,7 @@
 This project is an independent initiative and is not affiliated with or endorsed by the creators of IdleMMO. Please respect the game's terms of service and avoid excessive API requests that may impact server performance.
 > **Access token** and **scopes** are managed by the user of this library. Ensure you handle authentication securely and responsibly.
 
-## Aquisition of Access token
+## 🔑 Acquisition of Access token
 To obtain an access token for the Idle MMO API, follow these steps:
 - Visit [Settings/PublicAPI](https://web.idle-mmo.com/settings/api)
 - Click the "Create New Key" button
