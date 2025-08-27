@@ -12,7 +12,7 @@
 .idea/**/dictionaries
 .idea/**/shelf
 .idea
-config.properties
+jima-config.properties
 
 # AWS User-specific
 .idea/**/aws.xml

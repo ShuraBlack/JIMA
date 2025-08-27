@@ -18,7 +18,6 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.Map;
 import java.util.concurrent.*;
 
@@ -158,6 +157,12 @@ public class RequestManager {
 
             HttpResponse<String> response =
                     client.send(request, HttpResponse.BodyHandlers.ofString());
+
+            String remaining = response.headers().firstValue("X-RateLimit-Remaining").orElse("0");
+            if (remaining.equals("0")) {
+                handleRateLimit(response);
+                return get(url, type);
+            }
 
             if (response.statusCode() == 429) {
                 handleRateLimit(response);

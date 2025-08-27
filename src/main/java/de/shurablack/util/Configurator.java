@@ -5,11 +5,12 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.File;
 import java.io.FileReader;
+import java.io.FileWriter;
 import java.util.Properties;
 
 /**
  * Singleton class responsible for managing application configuration.
- * It loads configuration from a `config.properties` file if available,
+ * It loads configuration from a `jima-config.properties` file if available,
  * or falls back to environment variables. If the configuration file is
  * missing, a template file is created.
  */
@@ -41,14 +42,14 @@ public class Configurator {
         Properties props = new Properties();
 
         if (checkForConfigFile()) {
-            LOGGER.info("Loading configuration from config.properties file");
+            LOGGER.info("Loading configuration from jima-config.properties file");
             props = loadPropertiesFromFile();
             if (props == null || !checkForPropertiesValues(props)) {
-                LOGGER.error("config.properties file is missing required properties");
+                LOGGER.error("jima-config.properties file is missing required properties");
                 props = new Properties();
             }
         } else {
-            LOGGER.warn("config.properties file not found");
+            LOGGER.warn("jima-config.properties file not found");
             writeTemplateConfigFile();
             LOGGER.info("Loading configuration from environment variables");
             props.setProperty("API_KEY", System.getenv("API_KEY"));
@@ -81,17 +82,17 @@ public class Configurator {
     }
 
     /**
-     * Checks if the `config.properties` file exists in the current directory.
+     * Checks if the `jima-config.properties` file exists in the current directory.
      *
      * @return true if the file exists and is not a directory, false otherwise
      */
     private boolean checkForConfigFile() {
-        File file = new File("config.properties");
+        File file = new File("jima-config.properties");
         return file.exists() && !file.isDirectory();
     }
 
     /**
-     * Creates a template `config.properties` file with placeholder values.
+     * Creates a template `jima-config.properties` file with placeholder values.
      * Logs an error if the file creation fails.
      */
     private void writeTemplateConfigFile() {
@@ -101,7 +102,7 @@ public class Configurator {
             templateProps.setProperty("APPLICATION_NAME", "your_app_name_here");
             templateProps.setProperty("APPLICATION_VERSION", "your_app_version_here");
             templateProps.setProperty("CONTACT_EMAIL", "your_contact_email_here");
-            templateProps.store(new java.io.FileWriter("config.properties"), "Template config file");
+            templateProps.store(new FileWriter("jima-config.properties"), "Template config file");
             LOGGER.info("Template config.properties file created");
         } catch (Exception e) {
             LOGGER.error("Failed to create template config.properties file", e);
@@ -109,7 +110,7 @@ public class Configurator {
     }
 
     /**
-     * Loads properties from the `config.properties` file.
+     * Loads properties from the `jima-config.properties` file.
      *
      * @return a Properties object containing the loaded key-value pairs,
      *         or null if an error occurs during loading
@@ -117,7 +118,7 @@ public class Configurator {
     private Properties loadPropertiesFromFile() {
         try {
             Properties props = new Properties();
-            props.load(new FileReader("config.properties"));
+            props.load(new FileReader("jima-config.properties"));
             return props;
         } catch (Exception e) {
             LOGGER.error("Failed to load config.properties file", e);
