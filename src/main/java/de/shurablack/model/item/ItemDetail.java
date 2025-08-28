@@ -5,6 +5,9 @@ import de.shurablack.model.combat.Quality;
 import de.shurablack.model.item.recipe.Recipe;
 import de.shurablack.model.ref.UpgradeReference;
 import de.shurablack.util.Nullable;
+import de.shurablack.util.types.ItemType;
+import de.shurablack.util.types.SecondaryStatType;
+import de.shurablack.util.types.StatType;
 import lombok.*;
 
 import java.util.List;
@@ -47,7 +50,7 @@ public class ItemDetail {
     /**
      * The type of the item (e.g., weapon, armor).
      */
-    private String type;
+    private ItemType type;
 
     /**
      * The quality of the item.
@@ -81,7 +84,7 @@ public class ItemDetail {
      * The stats of the item, represented as a map of attributes to values (nullable).
      */
     @Nullable
-    private Map<String, Integer> stats;
+    private Map<SecondaryStatType, Double> stats;
 
     /**
      * The list of effects applied by the item (nullable).

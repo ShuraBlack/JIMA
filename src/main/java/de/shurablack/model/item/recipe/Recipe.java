@@ -1,5 +1,6 @@
 package de.shurablack.model.item.recipe;
 
+import de.shurablack.util.types.SkillType;
 import lombok.*;
 
 import java.util.List;
@@ -20,7 +21,7 @@ public class Recipe {
     /**
      * The skill required to craft the recipe.
      */
-    private String skill;
+    private SkillType skill;
 
     /**
      * The level required to use the recipe.
@@ -33,17 +34,18 @@ public class Recipe {
     private int maxUses;
 
     /**
-     * The amount of experience gained from crafting the recipe.
+     * The experience gained from crafting the recipe.
      */
-    private int experience;
+    private RecipeExperience experience;
 
     /**
      * The list of materials required to craft the recipe.
      */
-    private List<RecipeMaterial> materials;
+    private List<RecipeItem> materials;
 
     /**
      * The result of crafting the recipe.
      */
-    private RecipeResult result;
+    private RecipeItem result;
+
 }

@@ -3,9 +3,12 @@ package de.shurablack.http;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.module.SimpleModule;
-import de.shurablack.http.serialization.HexColorDeserializer;
-import de.shurablack.http.serialization.LocalDateTimeDeserializer;
+import de.shurablack.http.serialization.*;
+import de.shurablack.model.item.recipe.RecipeExperience;
 import de.shurablack.util.Configurator;
+import de.shurablack.util.types.SecondaryStatType;
+import de.shurablack.util.types.SkillType;
+import de.shurablack.util.types.StatType;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -45,8 +48,19 @@ public class RequestManager {
         mapper.setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
 
         SimpleModule module = new SimpleModule();
+
+        // Basic type deserializers
         module.addDeserializer(LocalDateTime.class, new LocalDateTimeDeserializer());
         module.addDeserializer(Color.class, new HexColorDeserializer());
+
+        // Custom deserializers for complex types
+        module.addDeserializer(RecipeExperience.class, new RecipeExperienceDeserializer());
+
+        // Enum (Str -> Enum type) deserializers
+        module.addDeserializer(SkillType.class, new SkillTypeDeserializer());
+        module.addDeserializer(StatType.class, new StatTypeDeserializer());
+        module.addDeserializer(SecondaryStatType.class, new SecondaryStatTypeDeserializer());
+
         mapper.registerModule(module);
     }
 

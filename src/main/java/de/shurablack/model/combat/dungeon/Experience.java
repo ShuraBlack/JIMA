@@ -1,5 +1,6 @@
 package de.shurablack.model.combat.dungeon;
 
+import de.shurablack.util.types.SkillType;
 import lombok.*;
 
 import java.util.Map;
@@ -19,6 +20,6 @@ public class Experience {
     /**
      * A map where the key is the name of the skill, and the value is the experience gained for that skill.
      */
-    private Map<String, Integer> skills;
+    private Map<SkillType, Integer> skills;
 
 }

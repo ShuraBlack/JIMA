@@ -2,6 +2,7 @@ package de.shurablack.model.character.view;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import de.shurablack.util.Nullable;
+import de.shurablack.util.types.SkillType;
 import lombok.*;
 
 import java.time.LocalDateTime;
@@ -58,7 +59,7 @@ public class Character {
     /**
      * A map containing the character's skills, where the key is the skill name and the value is the skill details.
      */
-    private Map<String, Skill> skills;
+    private Map<SkillType, Skill> skills;
 
     /**
      * A map containing the character's stats, where the key is the stat name and the value is the stat value.

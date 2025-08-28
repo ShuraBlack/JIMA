@@ -1,9 +1,10 @@
 package de.shurablack.model.item.recipe;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.*;
 
 /**
- * Represents a material required for a crafting recipe.
+ * Represents an item in context of a crafting recipe.
  * This class contains details about the item's hashed ID, name, and the quantity needed.
  */
 @AllArgsConstructor
@@ -12,7 +13,7 @@ import lombok.*;
 @Setter
 @EqualsAndHashCode
 @ToString
-public class RecipeMaterial {
+public class RecipeItem {
 
     /**
      * The unique hashed identifier of the item.
@@ -25,8 +26,9 @@ public class RecipeMaterial {
     private String itemName;
 
     /**
-     * The quantity of the item required for the recipe.
+     * The quantity of the item.
      */
-    private int quantity;
+    @JsonProperty(defaultValue = "1")
+    private int quantity = 1;
 
 }
