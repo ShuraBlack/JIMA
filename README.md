@@ -17,7 +17,7 @@
 ## ✨ Features
 
 - 🧱 Object-oriented representation of game entities
-- 💡 Managed requests without the need to handle it manually   
+- 💡 Managed requests without a single line of code
 - ⚡ Easy-to-use request methods for seamless data retrieval
 - 💾 Built-in configuration management for API keys and application settings
 - 🔍 Support for various game features like world bosses, guild conquests, and market history
@@ -111,6 +111,7 @@ public class Main {
     }
 }
 ```
+
 
 ## 📦 Dependencies
 [Lombok](https://projectlombok.org/) — Simplifies Java code with annotations. <br>

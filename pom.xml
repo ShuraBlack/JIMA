@@ -6,7 +6,7 @@
 
     <groupId>io.github.shurablack</groupId>
     <artifactId>JIMA</artifactId>
-    <version>1.1.0</version>
+    <version>1.1.1</version>
 
     <name>JIMA</name>
     <description>Java IdleMMO Public API wrapper</description>

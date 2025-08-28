@@ -1,4 +1,4 @@
-package de.shurablack.util;
+package de.shurablack.util.types;
 
 /**
  * Represents the types of market views in the system.

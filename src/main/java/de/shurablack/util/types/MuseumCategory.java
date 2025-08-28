@@ -1,4 +1,4 @@
-package de.shurablack.util;
+package de.shurablack.util.types;
 
 /**
  * Represents the categories of a museum in the system.

@@ -1,4 +1,4 @@
-package de.shurablack.util;
+package de.shurablack.util.types;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;

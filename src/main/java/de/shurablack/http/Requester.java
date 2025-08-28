@@ -18,9 +18,10 @@ import de.shurablack.model.item.ItemInspection;
 import de.shurablack.model.item.Items;
 import de.shurablack.model.item.market.MarketHistory;
 import de.shurablack.model.shrine.ShrineInfo;
-import de.shurablack.util.LocationType;
-import de.shurablack.util.MarketType;
-import de.shurablack.util.MuseumCategory;
+import de.shurablack.util.types.ItemType;
+import de.shurablack.util.types.LocationType;
+import de.shurablack.util.types.MarketType;
+import de.shurablack.util.types.MuseumCategory;
 
 import java.util.Map;
 
@@ -40,7 +41,12 @@ public class Requester {
      * @return A response containing authentication details.
      */
     public static Response<Authentication> getAuthentication() {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.AUTHENTICATE, null, null, Authentication.class).join();
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.AUTHENTICATE,
+                null,
+                null,
+                Authentication.class
+        ).join();
     }
 
     /**
@@ -48,7 +54,12 @@ public class Requester {
      * @return A response containing world boss details.
      */
     public static Response<WorldBosses> getWorldBosses() {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.WORLD_BOSSES, null, null, WorldBosses.class).join();
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.WORLD_BOSSES,
+                null,
+                null,
+                WorldBosses.class
+        ).join();
     }
 
     /**
@@ -56,7 +67,12 @@ public class Requester {
      * @return A response containing dungeon details.
      */
     public static Response<Dungeons> getDungeons() {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.DUNGEONS, null, null, Dungeons.class).join();
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.DUNGEONS,
+                null,
+                null,
+                Dungeons.class
+        ).join();
     }
 
     /**
@@ -64,26 +80,86 @@ public class Requester {
      * @return A response containing enemy details.
      */
     public static Response<Enemies> getEnemies() {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.ENEMIES, null, null, Enemies.class).join();
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.ENEMIES,
+                null,
+                null,
+                Enemies.class
+        ).join();
     }
 
     /**
-     * Searches for items based on a query.
+     * Searches for items based on various criteria.
      * @param query The search query.
-     * @return A response containing the search results.
+     * @return A response containing item details.
      */
-    public static Response<Items> searchItem(String query) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.ITEMS, null, Map.of("query", query), Items.class).join();
+    public static Response<Items> searchItems(String query) {
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.ITEMS,
+                null,
+                Map.of("query", query),
+                Items.class
+        ).join();
+    }
+
+    /**
+     * Searches for items of a specific type.
+     * @param type The type of items to search for.
+     * @return A response containing item details.
+     */
+    public static Response<Items> searchItems(ItemType type) {
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.ITEMS,
+                null,
+                Map.of("type", type.name().toLowerCase()),
+                Items.class
+        ).join();
+    }
+
+    /**
+     * Searches for items with pagination.
+     * @param page The page number to retrieve.
+     * @param type The type of items to search for.
+     * @return A response containing item details.
+     */
+    public static Response<Items> searchItems(ItemType type, int page) {
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.ITEMS,
+                null,
+                Map.of("type", type.name().toLowerCase(), "page", String.valueOf(page)),
+                Items.class
+        ).join();
     }
 
     /**
      * Searches for items based on a query and page number.
      * @param query The search query.
-     * @param page The page number.
-     * @return A response containing the search results.
+     * @param page The page number to retrieve.
+     * @return A response containing item details.
      */
-    public static Response<Items> searchItem(String query, int page) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.ITEMS, null, Map.of("query", query, "page", String.valueOf(page)), Items.class).join();
+    public static Response<Items> searchItems(String query, int page) {
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.ITEMS,
+                null,
+                Map.of("query", query, "page", String.valueOf(page)),
+                Items.class
+        ).join();
+    }
+
+    /**
+     * Searches for items based on a query and type.
+     * @param query The search query.
+     * @param type The type of items to search for.
+     * @param page The page number to retrieve.
+     * @return A response containing item details.
+     */
+    public static Response<Items> searchItems(String query, ItemType type, int page) {
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.ITEMS,
+                null,
+                Map.of("query", query, "type", type.name().toLowerCase(), "page", String.valueOf(page)),
+                Items.class
+        ).join();
     }
 
     /**
@@ -92,7 +168,12 @@ public class Requester {
      * @return A response containing item inspection details.
      */
     public static Response<ItemInspection> inspectItem(String hashedItemId) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.ITEM_INSPECTION, Map.of("hashed_item_id", hashedItemId), null, ItemInspection.class).join();
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.ITEM_INSPECTION,
+                Map.of("hashed_item_id", hashedItemId),
+                null,
+                ItemInspection.class
+        ).join();
     }
 
     /**
@@ -103,10 +184,12 @@ public class Requester {
      * @return A response containing market history details.
      */
     public static Response<MarketHistory> getMarketHistory(String hashedItemId, int tier, MarketType type) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.ITEM_MARKET_HISTORY
-                , Map.of("hashed_item_id", hashedItemId)
-                , Map.of("tier", String.valueOf(tier), "type", type.name().toLowerCase())
-                , MarketHistory.class).join();
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.ITEM_MARKET_HISTORY,
+                Map.of("hashed_item_id", hashedItemId),
+                Map.of("tier", String.valueOf(tier), "type", type.name().toLowerCase()),
+                MarketHistory.class
+        ).join();
     }
 
     /**
@@ -116,10 +199,12 @@ public class Requester {
      * @return A response containing market history details.
      */
     public static Response<MarketHistory> getMarketHistory(String hashedItemId, MarketType type) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.ITEM_MARKET_HISTORY
-                , Map.of("hashed_item_id", hashedItemId)
-                , Map.of("tier", "0", "type", type.name().toLowerCase())
-                , MarketHistory.class).join();
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.ITEM_MARKET_HISTORY,
+                Map.of("hashed_item_id", hashedItemId),
+                Map.of("tier", "0", "type", type.name().toLowerCase()),
+                MarketHistory.class
+        ).join();
     }
 
     /**
@@ -128,10 +213,12 @@ public class Requester {
      * @return A response containing market listing history details.
      */
     public static Response<MarketHistory> getMarketListingHistory(String hashedItemId) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.ITEM_MARKET_HISTORY
-                , Map.of("hashed_item_id", hashedItemId)
-                , Map.of("tier", "0", "type", MarketType.LISTINGS.name().toLowerCase())
-                , MarketHistory.class).join();
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.ITEM_MARKET_HISTORY,
+                Map.of("hashed_item_id", hashedItemId),
+                Map.of("tier", "0", "type", MarketType.LISTINGS.name().toLowerCase()),
+                MarketHistory.class
+        ).join();
     }
 
     /**
@@ -140,10 +227,12 @@ public class Requester {
      * @return A response containing market order history details.
      */
     public static Response<MarketHistory> getMarketOrderHistory(String hashedItemId) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.ITEM_MARKET_HISTORY
-                , Map.of("hashed_item_id", hashedItemId)
-                , Map.of("tier", "0", "type", MarketType.ORDERS.name().toLowerCase())
-                , MarketHistory.class).join();
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.ITEM_MARKET_HISTORY,
+                Map.of("hashed_item_id", hashedItemId),
+                Map.of("tier", "0", "type", MarketType.ORDERS.name().toLowerCase()),
+                MarketHistory.class
+        ).join();
     }
 
     /**
@@ -152,10 +241,12 @@ public class Requester {
      * @return A response containing character details.
      */
     public static Response<CharacterView> getCharacter(String hashedCharacterId) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.CHARACTER_VIEW
-                , Map.of("hashed_character_id", hashedCharacterId)
-                , null
-                , CharacterView.class).join();
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.CHARACTER_VIEW,
+                Map.of("hashed_character_id", hashedCharacterId),
+                null,
+                CharacterView.class
+        ).join();
     }
 
     /**
@@ -164,10 +255,12 @@ public class Requester {
      * @return A response containing character metrics.
      */
     public static Response<CharacterMetric> getCharacterMetrics(String hashedCharacterId) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.CHARACTER_METRICS
-                , Map.of("hashed_character_id", hashedCharacterId)
-                , null
-                , CharacterMetric.class).join();
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.CHARACTER_METRICS,
+                Map.of("hashed_character_id", hashedCharacterId),
+                null,
+                CharacterMetric.class
+        ).join();
     }
 
     /**
@@ -176,10 +269,12 @@ public class Requester {
      * @return A response containing character effects.
      */
     public static Response<CharacterEffects> getCharacterEffects(String hashedCharacterId) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.CHARACTER_EFFECTS
-                , Map.of("hashed_character_id", hashedCharacterId)
-                , null
-                , CharacterEffects.class).join();
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.CHARACTER_EFFECTS,
+                Map.of("hashed_character_id", hashedCharacterId),
+                null,
+                CharacterEffects.class
+        ).join();
     }
 
     /**
@@ -188,10 +283,12 @@ public class Requester {
      * @return A response containing alternate character details.
      */
     public static Response<CharacterAlts> getCharacterAlts(String hashedCharacterId) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.CHARACTER_ALT_CHARACTERS
-                , Map.of("hashed_character_id", hashedCharacterId)
-                , null
-                , CharacterAlts.class).join();
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.CHARACTER_ALT_CHARACTERS,
+                Map.of("hashed_character_id", hashedCharacterId),
+                null,
+                CharacterAlts.class
+        ).join();
     }
 
     /**
@@ -200,10 +297,11 @@ public class Requester {
      * @return A response containing museum details.
      */
     public static Response<CharacterMuseum> getCharacterMuseum(String hashedCharacterId) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.CHARACTER_MUSEUM
-                , Map.of("hashed_character_id", hashedCharacterId)
-                , null
-                , CharacterMuseum.class).join();
+        return RequestManager.getInstance().enqueueRequest(Endpoint.CHARACTER_MUSEUM,
+                Map.of("hashed_character_id", hashedCharacterId),
+                null,
+                CharacterMuseum.class
+        ).join();
     }
 
     /**
@@ -213,10 +311,12 @@ public class Requester {
      * @return A response containing museum details.
      */
     public static Response<CharacterMuseum> getCharacterMuseum(String hashedCharacterId, int page) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.CHARACTER_MUSEUM
-                , Map.of("hashed_character_id", hashedCharacterId)
-                , Map.of("page", String.valueOf(page))
-                , CharacterMuseum.class).join();
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.CHARACTER_MUSEUM,
+                Map.of("hashed_character_id", hashedCharacterId),
+                Map.of("page", String.valueOf(page)),
+                CharacterMuseum.class
+        ).join();
     }
 
     /**
@@ -226,10 +326,12 @@ public class Requester {
      * @return A response containing museum details.
      */
     public static Response<CharacterMuseum> getCharacterMuseum(String hashedCharacterId, MuseumCategory category) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.CHARACTER_MUSEUM
-                , Map.of("hashed_character_id", hashedCharacterId)
-                , Map.of("category", category.name())
-                , CharacterMuseum.class).join();
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.CHARACTER_MUSEUM,
+                Map.of("hashed_character_id", hashedCharacterId),
+                Map.of("category", category.name()),
+                CharacterMuseum.class
+        ).join();
     }
 
     /**
@@ -240,10 +342,12 @@ public class Requester {
      * @return A response containing museum details.
      */
     public static Response<CharacterMuseum> getCharacterMuseum(String hashedCharacterId, MuseumCategory category, int page) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.CHARACTER_MUSEUM
-                , Map.of("hashed_character_id", hashedCharacterId)
-                , Map.of("category", category.name(), "page", String.valueOf(page))
-                , CharacterMuseum.class).join();
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.CHARACTER_MUSEUM,
+                Map.of("hashed_character_id", hashedCharacterId),
+                Map.of("category", category.name(), "page", String.valueOf(page)),
+                CharacterMuseum.class
+        ).join();
     }
 
     /**
@@ -252,10 +356,12 @@ public class Requester {
      * @return A response containing the character's current action.
      */
     public static Response<CharacterAction> getCharacterAction(String hashedCharacterId) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.CHARACTER_CURRENT_ACTION
-                , Map.of("hashed_character_id", hashedCharacterId)
-                , null
-                , CharacterAction.class).join();
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.CHARACTER_CURRENT_ACTION,
+                Map.of("hashed_character_id", hashedCharacterId),
+                null,
+                CharacterAction.class
+        ).join();
     }
 
     /**
@@ -264,10 +370,12 @@ public class Requester {
      * @return A response containing character pet details.
      */
     public static Response<CharacterPets> getCharacterPets(String hashedCharacterId) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.CHARACTER_PETS
-                , Map.of("hashed_character_id", hashedCharacterId)
-                , null
-                , CharacterPets.class).join();
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.CHARACTER_PETS,
+                Map.of("hashed_character_id", hashedCharacterId),
+                null,
+                CharacterPets.class
+        ).join();
     }
 
     /**
@@ -276,10 +384,12 @@ public class Requester {
      * @return A response containing guild details.
      */
     public static Response<GuildView> getGuild(int id) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.GUILD_INFORMATION
-                , Map.of("id", String.valueOf(id))
-                , null
-                , GuildView.class).join();
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.GUILD_INFORMATION,
+                Map.of("id", String.valueOf(id)),
+                null,
+                GuildView.class
+        ).join();
     }
 
     /**
@@ -287,10 +397,12 @@ public class Requester {
      * @return A response containing guild conquest details.
      */
     public static Response<GuildConquest> getCurrentGuildConquest() {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.GUILD_CONQUESTS
-                , null
-                , null
-                , GuildConquest.class).join();
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.GUILD_CONQUESTS,
+                null,
+                null,
+                GuildConquest.class
+        ).join();
     }
 
     /**
@@ -299,10 +411,12 @@ public class Requester {
      * @return A response containing guild conquest details.
      */
     public static Response<GuildConquest> getGuildConquestBySeason(int season) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.GUILD_CONQUESTS
-                , null
-                , Map.of("season_number", String.valueOf(season))
-                , GuildConquest.class).join();
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.GUILD_CONQUESTS,
+                null,
+                Map.of("season_number", String.valueOf(season)),
+                GuildConquest.class
+        ).join();
     }
 
     /**
@@ -311,10 +425,12 @@ public class Requester {
      * @return A response containing guild conquest inspection details.
      */
     public static Response<GuildConquestInspection> getGuildConquestInspection(LocationType zone) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.GUILD_CONQUEST_ZONE_INSPECTION
-                , Map.of("zone_id", zone.getId())
-                , null
-                , GuildConquestInspection.class).join();
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.GUILD_CONQUEST_ZONE_INSPECTION,
+                Map.of("zone_id", zone.getId()),
+                null,
+                GuildConquestInspection.class
+        ).join();
     }
 
     /**
@@ -324,10 +440,12 @@ public class Requester {
      * @return A response containing guild conquest inspection details.
      */
     public static Response<GuildConquestInspection> getGuildConquestInspection(LocationType zone, int season) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.GUILD_CONQUEST_ZONE_INSPECTION
-                , Map.of("zone_id", zone.getId())
-                , Map.of("season_number", String.valueOf(season))
-                , GuildConquestInspection.class).join();
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.GUILD_CONQUEST_ZONE_INSPECTION,
+                Map.of("zone_id", zone.getId()),
+                Map.of("season_number", String.valueOf(season)),
+                GuildConquestInspection.class
+        ).join();
     }
 
     /**
@@ -335,7 +453,12 @@ public class Requester {
      * @return A response containing shrine progress details.
      */
     public static Response<ShrineInfo> getShrineInfo() {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.SHRINE_PROGRESS, null, null, ShrineInfo.class).join();
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.SHRINE_PROGRESS,
+                null,
+                null,
+                ShrineInfo.class
+        ).join();
     }
 
 }

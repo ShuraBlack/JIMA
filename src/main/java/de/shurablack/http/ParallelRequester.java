@@ -18,9 +18,10 @@ import de.shurablack.model.item.ItemInspection;
 import de.shurablack.model.item.Items;
 import de.shurablack.model.item.market.MarketHistory;
 import de.shurablack.model.shrine.ShrineInfo;
-import de.shurablack.util.LocationType;
-import de.shurablack.util.MarketType;
-import de.shurablack.util.MuseumCategory;
+import de.shurablack.util.types.ItemType;
+import de.shurablack.util.types.LocationType;
+import de.shurablack.util.types.MarketType;
+import de.shurablack.util.types.MuseumCategory;
 
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -41,7 +42,12 @@ public class ParallelRequester {
      * @return A response containing authentication details.
      */
     public static CompletableFuture<Response<Authentication>> getAuthentication() {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.AUTHENTICATE, null, null, Authentication.class);
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.AUTHENTICATE,
+                null,
+                null,
+                Authentication.class
+        );
     }
 
     /**
@@ -49,7 +55,12 @@ public class ParallelRequester {
      * @return A response containing world boss details.
      */
     public static CompletableFuture<Response<WorldBosses>> getWorldBosses() {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.WORLD_BOSSES, null, null, WorldBosses.class);
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.WORLD_BOSSES,
+                null,
+                null,
+                WorldBosses.class
+        );
     }
 
     /**
@@ -57,7 +68,12 @@ public class ParallelRequester {
      * @return A response containing dungeon details.
      */
     public static CompletableFuture<Response<Dungeons>> getDungeons() {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.DUNGEONS, null, null, Dungeons.class);
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.DUNGEONS,
+                null,
+                null,
+                Dungeons.class
+        );
     }
 
     /**
@@ -65,26 +81,86 @@ public class ParallelRequester {
      * @return A response containing enemy details.
      */
     public static CompletableFuture<Response<Enemies>> getEnemies() {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.ENEMIES, null, null, Enemies.class);
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.ENEMIES,
+                null,
+                null,
+                Enemies.class
+        );
     }
 
     /**
-     * Searches for items based on a query.
+     * Searches for items based on various criteria.
      * @param query The search query.
-     * @return A response containing the search results.
+     * @return A response containing item details.
      */
-    public static CompletableFuture<Response<Items>> searchItem(String query) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.ITEMS, null, Map.of("query", query), Items.class);
+    public static CompletableFuture<Response<Items>> searchItems(String query) {
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.ITEMS,
+                null,
+                Map.of("query", query),
+                Items.class
+        );
+    }
+
+    /**
+     * Searches for items of a specific type.
+     * @param type The type of items to search for.
+     * @return A response containing item details.
+     */
+    public static CompletableFuture<Response<Items>> searchItems(ItemType type) {
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.ITEMS,
+                null,
+                Map.of("type", type.name().toLowerCase()),
+                Items.class
+        );
+    }
+
+    /**
+     * Searches for items with pagination.
+     * @param page The page number to retrieve.
+     * @param type The type of items to search for.
+     * @return A response containing item details.
+     */
+    public static CompletableFuture<Response<Items>> searchItems(ItemType type, int page) {
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.ITEMS,
+                null,
+                Map.of("type", type.name().toLowerCase(), "page", String.valueOf(page)),
+                Items.class
+        );
     }
 
     /**
      * Searches for items based on a query and page number.
      * @param query The search query.
-     * @param page The page number.
-     * @return A response containing the search results.
+     * @param page The page number to retrieve.
+     * @return A response containing item details.
      */
-    public static CompletableFuture<Response<Items>> searchItem(String query, int page) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.ITEMS, null, Map.of("query", query, "page", String.valueOf(page)), Items.class);
+    public static CompletableFuture<Response<Items>> searchItems(String query, int page) {
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.ITEMS,
+                null,
+                Map.of("query", query, "page", String.valueOf(page)),
+                Items.class
+        );
+    }
+
+    /**
+     * Searches for items based on a query and type.
+     * @param query The search query.
+     * @param type The type of items to search for.
+     * @param page The page number to retrieve.
+     * @return A response containing item details.
+     */
+    public static CompletableFuture<Response<Items>> searchItems(String query, ItemType type, int page) {
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.ITEMS,
+                null,
+                Map.of("query", query, "type", type.name().toLowerCase(), "page", String.valueOf(page)),
+                Items.class
+        );
     }
 
     /**
@@ -93,7 +169,12 @@ public class ParallelRequester {
      * @return A response containing item inspection details.
      */
     public static CompletableFuture<Response<ItemInspection>> inspectItem(String hashedItemId) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.ITEM_INSPECTION, Map.of("hashed_item_id", hashedItemId), null, ItemInspection.class);
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.ITEM_INSPECTION,
+                Map.of("hashed_item_id", hashedItemId),
+                null,
+                ItemInspection.class
+        );
     }
 
     /**
@@ -104,10 +185,12 @@ public class ParallelRequester {
      * @return A response containing market history details.
      */
     public static CompletableFuture<Response<MarketHistory>> getMarketHistory(String hashedItemId, int tier, MarketType type) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.ITEM_MARKET_HISTORY
-                , Map.of("hashed_item_id", hashedItemId)
-                , Map.of("tier", String.valueOf(tier), "type", type.name().toLowerCase())
-                , MarketHistory.class);
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.ITEM_MARKET_HISTORY,
+                Map.of("hashed_item_id", hashedItemId),
+                Map.of("tier", String.valueOf(tier), "type", type.name().toLowerCase()),
+                MarketHistory.class
+        );
     }
 
     /**
@@ -117,10 +200,12 @@ public class ParallelRequester {
      * @return A response containing market history details.
      */
     public static CompletableFuture<Response<MarketHistory>> getMarketHistory(String hashedItemId, MarketType type) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.ITEM_MARKET_HISTORY
-                , Map.of("hashed_item_id", hashedItemId)
-                , Map.of("tier", "0", "type", type.name().toLowerCase())
-                , MarketHistory.class);
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.ITEM_MARKET_HISTORY,
+                Map.of("hashed_item_id", hashedItemId),
+                Map.of("tier", "0", "type", type.name().toLowerCase()),
+                MarketHistory.class
+        );
     }
 
     /**
@@ -129,10 +214,12 @@ public class ParallelRequester {
      * @return A response containing market listing history details.
      */
     public static CompletableFuture<Response<MarketHistory>> getMarketListingHistory(String hashedItemId) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.ITEM_MARKET_HISTORY
-                , Map.of("hashed_item_id", hashedItemId)
-                , Map.of("tier", "0", "type", MarketType.LISTINGS.name().toLowerCase())
-                , MarketHistory.class);
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.ITEM_MARKET_HISTORY,
+                Map.of("hashed_item_id", hashedItemId),
+                Map.of("tier", "0", "type", MarketType.LISTINGS.name().toLowerCase()),
+                MarketHistory.class
+        );
     }
 
     /**
@@ -141,10 +228,12 @@ public class ParallelRequester {
      * @return A response containing market order history details.
      */
     public static CompletableFuture<Response<MarketHistory>> getMarketOrderHistory(String hashedItemId) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.ITEM_MARKET_HISTORY
-                , Map.of("hashed_item_id", hashedItemId)
-                , Map.of("tier", "0", "type", MarketType.ORDERS.name().toLowerCase())
-                , MarketHistory.class);
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.ITEM_MARKET_HISTORY,
+                Map.of("hashed_item_id", hashedItemId),
+                Map.of("tier", "0", "type", MarketType.ORDERS.name().toLowerCase()),
+                MarketHistory.class
+        );
     }
 
     /**
@@ -153,10 +242,12 @@ public class ParallelRequester {
      * @return A response containing character details.
      */
     public static CompletableFuture<Response<CharacterView>> getCharacter(String hashedCharacterId) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.CHARACTER_VIEW
-                , Map.of("hashed_character_id", hashedCharacterId)
-                , null
-                , CharacterView.class);
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.CHARACTER_VIEW,
+                Map.of("hashed_character_id", hashedCharacterId),
+                null,
+                CharacterView.class
+        );
     }
 
     /**
@@ -165,10 +256,12 @@ public class ParallelRequester {
      * @return A response containing character metrics.
      */
     public static CompletableFuture<Response<CharacterMetric>> getCharacterMetrics(String hashedCharacterId) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.CHARACTER_METRICS
-                , Map.of("hashed_character_id", hashedCharacterId)
-                , null
-                , CharacterMetric.class);
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.CHARACTER_METRICS,
+                Map.of("hashed_character_id", hashedCharacterId),
+                null,
+                CharacterMetric.class
+        );
     }
 
     /**
@@ -177,10 +270,12 @@ public class ParallelRequester {
      * @return A response containing character effects.
      */
     public static CompletableFuture<Response<CharacterEffects>> getCharacterEffects(String hashedCharacterId) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.CHARACTER_EFFECTS
-                , Map.of("hashed_character_id", hashedCharacterId)
-                , null
-                , CharacterEffects.class);
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.CHARACTER_EFFECTS,
+                Map.of("hashed_character_id", hashedCharacterId),
+                null,
+                CharacterEffects.class
+        );
     }
 
     /**
@@ -189,10 +284,12 @@ public class ParallelRequester {
      * @return A response containing alternate character details.
      */
     public static CompletableFuture<Response<CharacterAlts>> getCharacterAlts(String hashedCharacterId) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.CHARACTER_ALT_CHARACTERS
-                , Map.of("hashed_character_id", hashedCharacterId)
-                , null
-                , CharacterAlts.class);
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.CHARACTER_ALT_CHARACTERS,
+                Map.of("hashed_character_id", hashedCharacterId),
+                null,
+                CharacterAlts.class
+        );
     }
 
     /**
@@ -201,10 +298,11 @@ public class ParallelRequester {
      * @return A response containing museum details.
      */
     public static CompletableFuture<Response<CharacterMuseum>> getCharacterMuseum(String hashedCharacterId) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.CHARACTER_MUSEUM
-                , Map.of("hashed_character_id", hashedCharacterId)
-                , null
-                , CharacterMuseum.class);
+        return RequestManager.getInstance().enqueueRequest(Endpoint.CHARACTER_MUSEUM,
+                Map.of("hashed_character_id", hashedCharacterId),
+                null,
+                CharacterMuseum.class
+        );
     }
 
     /**
@@ -214,10 +312,12 @@ public class ParallelRequester {
      * @return A response containing museum details.
      */
     public static CompletableFuture<Response<CharacterMuseum>> getCharacterMuseum(String hashedCharacterId, int page) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.CHARACTER_MUSEUM
-                , Map.of("hashed_character_id", hashedCharacterId)
-                , Map.of("page", String.valueOf(page))
-                , CharacterMuseum.class);
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.CHARACTER_MUSEUM,
+                Map.of("hashed_character_id", hashedCharacterId),
+                Map.of("page", String.valueOf(page)),
+                CharacterMuseum.class
+        );
     }
 
     /**
@@ -227,10 +327,12 @@ public class ParallelRequester {
      * @return A response containing museum details.
      */
     public static CompletableFuture<Response<CharacterMuseum>> getCharacterMuseum(String hashedCharacterId, MuseumCategory category) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.CHARACTER_MUSEUM
-                , Map.of("hashed_character_id", hashedCharacterId)
-                , Map.of("category", category.name())
-                , CharacterMuseum.class);
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.CHARACTER_MUSEUM,
+                Map.of("hashed_character_id", hashedCharacterId),
+                Map.of("category", category.name()),
+                CharacterMuseum.class
+        );
     }
 
     /**
@@ -241,10 +343,12 @@ public class ParallelRequester {
      * @return A response containing museum details.
      */
     public static CompletableFuture<Response<CharacterMuseum>> getCharacterMuseum(String hashedCharacterId, MuseumCategory category, int page) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.CHARACTER_MUSEUM
-                , Map.of("hashed_character_id", hashedCharacterId)
-                , Map.of("category", category.name(), "page", String.valueOf(page))
-                , CharacterMuseum.class);
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.CHARACTER_MUSEUM,
+                Map.of("hashed_character_id", hashedCharacterId),
+                Map.of("category", category.name(), "page", String.valueOf(page)),
+                CharacterMuseum.class
+        );
     }
 
     /**
@@ -253,10 +357,12 @@ public class ParallelRequester {
      * @return A response containing the character's current action.
      */
     public static CompletableFuture<Response<CharacterAction>> getCharacterAction(String hashedCharacterId) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.CHARACTER_CURRENT_ACTION
-                , Map.of("hashed_character_id", hashedCharacterId)
-                , null
-                , CharacterAction.class);
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.CHARACTER_CURRENT_ACTION,
+                Map.of("hashed_character_id", hashedCharacterId),
+                null,
+                CharacterAction.class
+        );
     }
 
     /**
@@ -265,10 +371,12 @@ public class ParallelRequester {
      * @return A response containing character pet details.
      */
     public static CompletableFuture<Response<CharacterPets>> getCharacterPets(String hashedCharacterId) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.CHARACTER_PETS
-                , Map.of("hashed_character_id", hashedCharacterId)
-                , null
-                , CharacterPets.class);
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.CHARACTER_PETS,
+                Map.of("hashed_character_id", hashedCharacterId),
+                null,
+                CharacterPets.class
+        );
     }
 
     /**
@@ -277,10 +385,12 @@ public class ParallelRequester {
      * @return A response containing guild details.
      */
     public static CompletableFuture<Response<GuildView>> getGuild(int id) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.GUILD_INFORMATION
-                , Map.of("id", String.valueOf(id))
-                , null
-                , GuildView.class);
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.GUILD_INFORMATION,
+                Map.of("id", String.valueOf(id)),
+                null,
+                GuildView.class
+        );
     }
 
     /**
@@ -288,10 +398,12 @@ public class ParallelRequester {
      * @return A response containing guild conquest details.
      */
     public static CompletableFuture<Response<GuildConquest>> getCurrentGuildConquest() {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.GUILD_CONQUESTS
-                , null
-                , null
-                , GuildConquest.class);
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.GUILD_CONQUESTS,
+                null,
+                null,
+                GuildConquest.class
+        );
     }
 
     /**
@@ -300,10 +412,12 @@ public class ParallelRequester {
      * @return A response containing guild conquest details.
      */
     public static CompletableFuture<Response<GuildConquest>> getGuildConquestBySeason(int season) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.GUILD_CONQUESTS
-                , null
-                , Map.of("season_number", String.valueOf(season))
-                , GuildConquest.class);
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.GUILD_CONQUESTS,
+                null,
+                Map.of("season_number", String.valueOf(season)),
+                GuildConquest.class
+        );
     }
 
     /**
@@ -312,10 +426,12 @@ public class ParallelRequester {
      * @return A response containing guild conquest inspection details.
      */
     public static CompletableFuture<Response<GuildConquestInspection>> getGuildConquestInspection(LocationType zone) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.GUILD_CONQUEST_ZONE_INSPECTION
-                , Map.of("zone_id", zone.getId())
-                , null
-                , GuildConquestInspection.class);
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.GUILD_CONQUEST_ZONE_INSPECTION,
+                Map.of("zone_id", zone.getId()),
+                null,
+                GuildConquestInspection.class
+        );
     }
 
     /**
@@ -325,10 +441,12 @@ public class ParallelRequester {
      * @return A response containing guild conquest inspection details.
      */
     public static CompletableFuture<Response<GuildConquestInspection>> getGuildConquestInspection(LocationType zone, int season) {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.GUILD_CONQUEST_ZONE_INSPECTION
-                , Map.of("zone_id", zone.getId())
-                , Map.of("season_number", String.valueOf(season))
-                , GuildConquestInspection.class);
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.GUILD_CONQUEST_ZONE_INSPECTION,
+                Map.of("zone_id", zone.getId()),
+                Map.of("season_number", String.valueOf(season)),
+                GuildConquestInspection.class
+        );
     }
 
     /**
@@ -336,7 +454,12 @@ public class ParallelRequester {
      * @return A response containing shrine progress details.
      */
     public static CompletableFuture<Response<ShrineInfo>> getShrineInfo() {
-        return RequestManager.getInstance().enqueueRequest(Endpoint.SHRINE_PROGRESS, null, null, ShrineInfo.class);
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.SHRINE_PROGRESS,
+                null,
+                null,
+                ShrineInfo.class
+        );
     }
 
 }
