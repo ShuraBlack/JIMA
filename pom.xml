@@ -4,13 +4,18 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>de.shurablack</groupId>
+    <groupId>io.github.shurablack</groupId>
     <artifactId>JIMA</artifactId>
-    <version>1.0.1</version>
+    <version>1.1.0</version>
+
+    <name>JIMA</name>
+    <description>Java IdleMMO Public API wrapper</description>
+    <url>https://github.com/ShuraBlack/JIMA</url>
 
     <developers>
         <developer>
             <name>ShuraBlack</name>
+            <email>captcommunitymail@gmail.com</email>
         </developer>
     </developers>
 
@@ -21,6 +26,12 @@
             <distribution>repo</distribution>
         </license>
     </licenses>
+
+    <scm>
+        <connection>scm:git:git://github.com/ShuraBlack/JIMA.git</connection>
+        <developerConnection>scm:git:ssh://github.com:ShuraBlack/JIMA.git</developerConnection>
+        <url>http://github.com/ShuraBlack/JIMA/tree/master</url>
+    </scm>
 
     <properties>
         <maven.compiler.source>11</maven.compiler.source>
@@ -58,6 +69,17 @@
 
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.sonatype.central</groupId>
+                <artifactId>central-publishing-maven-plugin</artifactId>
+                <version>0.8.0</version>
+                <extensions>true</extensions>
+                <configuration>
+                    <publishingServerId>central</publishingServerId>
+                    <autoPublish>true</autoPublish>
+                </configuration>
+            </plugin>
+
             <!-- Sources JAR -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

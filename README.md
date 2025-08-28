@@ -16,8 +16,8 @@
 
 ## ✨ Features
 
-- 🔄 Fetch real-time data from the Idle MMO API
 - 🧱 Object-oriented representation of game entities
+- 💡 Managed requests without the need to handle it manually   
 - ⚡ Easy-to-use request methods for seamless data retrieval
 - 💾 Built-in configuration management for API keys and application settings
 - 🔍 Support for various game features like world bosses, guild conquests, and market history
@@ -35,7 +35,26 @@ To obtain an access token for the Idle MMO API, follow these steps:
 - Copy the generated token and use it in your app configuration
 
 ## 🔧 Installation
-- This library requires **Java 11** or higher. Download the latest [release](https://github.com/ShuraBlack/JIMA/releases) and add the JAR file(s) to your project's build path/dependencies. <br>
+- This library requires **Java 11** or higher. Download the latest [release](https://github.com/ShuraBlack/JIMA/releases) and add the JAR file(s) to your project's build path/dependencies. Or use:<br>
+### Gradle
+```gradle
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'io.github.shurablack:JIMA:$version'
+}
+```
+
+### Maven
+```xml
+<dependency>
+    <groupId>io.github.shurablack</groupId>
+    <artifactId>JIMA</artifactId>
+    <version>$version</version>
+</dependency>
+```
 - Create a `jima-config.properties` file next to your build or inside your project folder with the following content:
 ```
 # config.properties
@@ -91,24 +110,6 @@ public class Main {
     }
 }
 ```
-
-## 📚 Key Classes
-### 🌐 Global Data
-WorldBosses — Fetch details about world bosses <br>
-Dungeons — Retrieve dungeon information <br>
-Enemies — Get enemy details <br>
-
-### 🧑‍🤝‍🧑 Character Data
-CharacterView — View character information <br>
-CharacterMetric — Retrieve character metrics <br>
-CharacterMuseum — Access character museum data <br>
-
-### 🏰 Guild Data
-GuildView — View guild information <br>
-GuildConquest — Retrieve guild conquest details <br>
-
-### 🛒 Market Data
-MarketHistory — Fetch market history for items <br>
 
 ## 📦 Dependencies
 [Lombok](https://projectlombok.org/) — Simplifies Java code with annotations. <br>
