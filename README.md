@@ -60,7 +60,7 @@ import de.shurablack.model.combat.worldboss.WorldBosses;
 public class Main {
     public static void main(String[] args) {
         var response = Requester.getWorldBosses();
-        if (response.getResponseCode().isSuccess()) {
+        if (response.isSuccess()) {
             WorldBosses bosses = response.getData();
             bosses.getWorldBosses().forEach(boss -> {
                 System.out.println("Boss Name: " + boss.getName());
@@ -81,7 +81,7 @@ import de.shurablack.model.character.view.CharacterView;
 public class Main {
     public static void main(String[] args) {
         var response = Requester.getCharacter("hashedCharacterId");
-        if (response.getResponseCode().isSuccess()) {
+        if (response.isSuccess()) {
             CharacterView character = response.getData();
             System.out.println("Character Name: " + character.getCharacter().getName());
             System.out.println("Class: " + character.getCharacter().getClassType());
