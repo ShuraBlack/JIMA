@@ -1,7 +1,7 @@
 [Java]: https://img.shields.io/badge/Java%2011-rgb(235%2C%20149%2C%2042)?style=for-the-badge
 [API]: https://img.shields.io/badge/API-Wrapper-blue?style=for-the-badge
 [License]: https://img.shields.io/badge/License-Apache%202.0-white?style=for-the-badge
-[Version]: https://img.shields.io/github/v/release/ShuraBlack/jima?display_name=tag&style=for-the-badge&color=green
+[Version]: https://img.shields.io/maven-central/v/io.github.shurablack/JIMA?strategy=highestVersion&style=for-the-badge&color=green
 [Discord]: https://img.shields.io/badge/Discord-shurablack-rgb(2%2C%20187%2C%20249)?style=for-the-badge&logo=discord&logoColor=rgb(2%2C%20187%2C%20249)
 
 # 📦 JIMA (Java Idle MMO API)
@@ -35,7 +35,8 @@ To obtain an access token for the Idle MMO API, follow these steps:
 - Copy the generated token and use it in your app configuration
 
 ## 🔧 Installation
-- This library requires **Java 11** or higher. Download the latest [release](https://github.com/ShuraBlack/JIMA/releases) and add the JAR file(s) to your project's build path/dependencies. Or use:<br>
+[![Version][]][Version]
+- This library requires **Java 11** or higher. This library is available on maven central.
 ### Gradle
 ```gradle
 repositories {
