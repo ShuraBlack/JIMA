@@ -2,7 +2,9 @@ package de.shurablack.model.character.view;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import de.shurablack.util.Nullable;
+import de.shurablack.util.types.ClassType;
 import de.shurablack.util.types.SkillType;
+import de.shurablack.util.types.StatType;
 import lombok.*;
 
 import java.time.LocalDateTime;
@@ -40,7 +42,7 @@ public class Character {
      * This field is serialized as "class" in JSON.
      */
     @JsonProperty("class")
-    private String classType;
+    private ClassType classType;
 
     /**
      * The URL of the character's image.
@@ -64,7 +66,7 @@ public class Character {
     /**
      * A map containing the character's stats, where the key is the stat name and the value is the stat value.
      */
-    private Map<String, Stat> stats;
+    private Map<StatType, Stat> stats;
 
     /**
      * The amount of gold the character possesses.
