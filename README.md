@@ -73,14 +73,15 @@ APPLICATION_NAME=<app_name>
 > The `Requester` or `ParallelRequester` class is the main entry point for making API requests.
 
 Example: Fetching World Bosses
+
 ```java
-import de.shurablack.http.Requester;
-import de.shurablack.model.combat.worldboss.WorldBosses;
+import de.shurablack.jima.http.Requester;
+import de.shurablack.jima.model.combat.worldboss.WorldBosses;
 
 public class Main {
     public static void main(String[] args) {
         var response = Requester.getWorldBosses();
-        if (response.isSuccess()) {
+        if (response.isSuccessful()) {
             WorldBosses bosses = response.getData();
             bosses.getWorldBosses().forEach(boss -> {
                 System.out.println("Boss Name: " + boss.getName());
@@ -94,14 +95,15 @@ public class Main {
 ```
 
 Example: Fetching Character Information
+
 ```java
-import de.shurablack.http.Requester;
-import de.shurablack.model.character.view.CharacterView;
+import de.shurablack.jima.http.Requester;
+import de.shurablack.jima.model.character.view.CharacterView;
 
 public class Main {
     public static void main(String[] args) {
         var response = Requester.getCharacter("hashedCharacterId");
-        if (response.isSuccess()) {
+        if (response.isSuccessful()) {
             CharacterView character = response.getData();
             System.out.println("Character Name: " + character.getCharacter().getName());
             System.out.println("Class: " + character.getCharacter().getClassType());
