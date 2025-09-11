@@ -3,6 +3,7 @@ package de.shurablack.jima.model.character.view;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import de.shurablack.jima.util.Nullable;
 import de.shurablack.jima.util.types.ClassType;
+import de.shurablack.jima.util.types.OnlineStatus;
 import de.shurablack.jima.util.types.SkillType;
 import de.shurablack.jima.util.types.StatType;
 import lombok.*;
@@ -105,13 +106,20 @@ public class Character {
     /**
      * The timestamp of the character's last activity.
      * This field is nullable.
+     * @deprecated This field points to the beginning of the year and might get removed in future versions.
      */
     @Nullable
+    @Deprecated
     private LocalDateTime lastActivity;
 
     /**
      * The timestamp when the character was created.
      */
     private LocalDateTime createdAt;
+
+    /**
+     * The online status of the character.
+     */
+    private OnlineStatus currentStatus;
 
 }
