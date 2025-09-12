@@ -1,8 +1,5 @@
 package de.shurablack.jima.util;
 
-import de.shurablack.jima.http.Requester;
-import de.shurablack.jima.http.Response;
-import de.shurablack.jima.model.auth.Authentication;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -42,26 +39,53 @@ public class Configurator {
      * Loads configuration from a file or environment variables.
      */
     private Configurator() {
+        this.properties = init();
+    }
+
+    private Properties init() {
         Properties props = new Properties();
 
         if (checkForConfigFile()) {
             LOGGER.info("Loading configuration from jima-config.properties file");
             props = loadPropertiesFromFile();
-            if (props == null || !checkForPropertiesValues(props)) {
+            if (!checkForEssentialValues(props)) {
+                LOGGER.error("Failed to load properties from jima-config.properties file");
+                props = new Properties();
+            } else if (props.containsKey("USE_ROTATING_TOKENS") && props.getProperty("USE_ROTATING_TOKENS").equalsIgnoreCase("true")) {
+                TokenStore.getInstance().loadTokens();
+            } else if (!props.containsKey("API_KEY")) {
                 LOGGER.error("jima-config.properties file is missing required properties");
                 props = new Properties();
+            } else {
+                TokenStore.getInstance().addToken(props.getProperty("API_KEY"));
             }
         } else {
             LOGGER.warn("jima-config.properties file not found");
             writeTemplateConfigFile();
             LOGGER.info("Loading configuration from environment variables");
-            props.setProperty("API_KEY", System.getenv("API_KEY"));
+            props.setProperty("USE_ROTATING_TOKENS", System.getenv("USE_ROTATING_TOKENS"));
             props.setProperty("APPLICATION_NAME", System.getenv("APPLICATION_NAME"));
             props.setProperty("APPLICATION_VERSION", System.getenv("APPLICATION_VERSION"));
             props.setProperty("CONTACT_EMAIL", System.getenv("CONTACT_EMAIL"));
+            if (!checkForEssentialValues(props)) {
+                LOGGER.error("Environment variables are missing required properties");
+                props = new Properties();
+            }
+
+            if (props.getProperty("USE_ROTATING_TOKENS") != null && props.getProperty("USE_ROTATING_TOKENS").equalsIgnoreCase("true")) {
+                TokenStore.getInstance().loadTokens();
+            } else {
+                props.setProperty("API_KEY", System.getenv("API_KEY"));
+                if (!props.containsKey("API_KEY")) {
+                    LOGGER.error("Environment variables are missing required properties");
+                    props = new Properties();
+                } else {
+                    TokenStore.getInstance().addToken(props.getProperty("API_KEY"));
+                }
+            }
         }
 
-        this.properties = props;
+        return props;
     }
 
     /**
@@ -105,6 +129,7 @@ public class Configurator {
             templateProps.setProperty("APPLICATION_NAME", "your_app_name_here");
             templateProps.setProperty("APPLICATION_VERSION", "your_app_version_here");
             templateProps.setProperty("CONTACT_EMAIL", "your_contact_email_here");
+            templateProps.setProperty("USE_ROTATING_TOKENS", "true_or_false");
             templateProps.store(new FileWriter("jima-config.properties"), "Template config file");
             LOGGER.info("Template config.properties file created");
         } catch (Exception e) {
@@ -116,7 +141,7 @@ public class Configurator {
      * Loads properties from the `jima-config.properties` file.
      *
      * @return a Properties object containing the loaded key-value pairs,
-     *         or null if an error occurs during loading
+     *         or an empty {@link Properties} object if an error occurs during loading
      */
     private Properties loadPropertiesFromFile() {
         try {
@@ -125,19 +150,19 @@ public class Configurator {
             return props;
         } catch (Exception e) {
             LOGGER.error("Failed to load config.properties file", e);
-            return null;
+            return new Properties();
         }
     }
 
     /**
-     * Validates that the required properties are present in the given Properties object.
+     * Validates that the essential properties are present in the given Properties object.
+     * This method is used when rotating tokens are enabled.
      *
      * @param properties the Properties object to validate
-     * @return true if all required properties are present, false otherwise
+     * @return true if all essential properties are present, false otherwise
      */
-    private boolean checkForPropertiesValues(Properties properties) {
-        return properties.containsKey("API_KEY") &&
-                properties.containsKey("APPLICATION_NAME") &&
+    private boolean checkForEssentialValues(Properties properties) {
+        return properties.containsKey("APPLICATION_NAME") &&
                 properties.containsKey("APPLICATION_VERSION") &&
                 properties.containsKey("CONTACT_EMAIL");
     }

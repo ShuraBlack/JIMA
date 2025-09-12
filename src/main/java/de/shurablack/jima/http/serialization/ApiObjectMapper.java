@@ -1,5 +1,6 @@
 package de.shurablack.jima.http.serialization;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.module.SimpleModule;
@@ -26,6 +27,8 @@ public class ApiObjectMapper extends ObjectMapper {
     public ApiObjectMapper() {
         // Set the property naming strategy to snake_case for JSON serialization/deserialization.
         this.setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
+        // Configure the mapper to ignore unknown properties during deserialization.
+        this.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         // Register the custom module containing deserializers.
         this.registerModule(getPreparedModule());
     }

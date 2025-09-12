@@ -3,6 +3,7 @@ package de.shurablack.jima.http;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import de.shurablack.jima.http.serialization.ApiObjectMapper;
 import de.shurablack.jima.util.Configurator;
+import de.shurablack.jima.util.TokenStore;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -153,18 +154,19 @@ public class RequestManager {
         try {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
-                    .setHeader("Authorization", "Bearer " + Configurator.getInstance().get("API_KEY"))
+                    .setHeader("Authorization", "Bearer " + TokenStore.getInstance().getToken())
                     .setHeader("Accept", "application/json")
                     .setHeader("User-Agent", Configurator.getInstance().get("APPLICATION_NAME") + "/" +
                             Configurator.getInstance().get("APPLICATION_VERSION") + " (Contact: " +
                             Configurator.getInstance().get("CONTACT_EMAIL") + ")")
                     .GET()
                     .build();
-
+            
             HttpResponse<String> response =
                     client.send(request, HttpResponse.BodyHandlers.ofString());
 
             String remaining = response.headers().firstValue(X_RATE_LIMIT_REMAINING).orElse("0");
+            TokenStore.getInstance().updateToken(TokenStore.getInstance().getToken(), Integer.parseInt(remaining));
             if (remaining.equals("0")) {
                 LOGGER.warn("Rate limit reached! Stall requests until reset.");
                 handleRateLimit(response);
