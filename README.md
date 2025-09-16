@@ -63,6 +63,7 @@ API_KEY=<your_token>
 CONTACT_EMAIL=<your_email>
 APPLICATION_VERSION=<app_version>
 APPLICATION_NAME=<app_name>
+USE_ROTATING_TOKENS=<true/false>
 ```
 > **HINT:** You can also use env variables instead of a properties file
 
