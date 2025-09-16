@@ -59,6 +59,7 @@ public class RequestManager {
      */
     private RequestManager() {
         worker.submit(this::processQueue);
+        Configurator.getInstance(); // Ensure Configurator is initialized
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             LOGGER.info("Shutdown detected – stopping Requester...");

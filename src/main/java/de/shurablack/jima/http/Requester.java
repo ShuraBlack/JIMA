@@ -14,16 +14,18 @@ import de.shurablack.jima.model.combat.worldboss.WorldBosses;
 import de.shurablack.jima.model.guild.GuildView;
 import de.shurablack.jima.model.guild.conquest.GuildConquest;
 import de.shurablack.jima.model.guild.conquest.GuildConquestInspection;
+import de.shurablack.jima.model.item.Item;
 import de.shurablack.jima.model.item.ItemInspection;
 import de.shurablack.jima.model.item.Items;
 import de.shurablack.jima.model.item.market.MarketHistory;
 import de.shurablack.jima.model.shrine.ShrineInfo;
+import de.shurablack.jima.util.ItemNameMatcher;
 import de.shurablack.jima.util.types.ItemType;
 import de.shurablack.jima.util.types.LocationType;
 import de.shurablack.jima.util.types.MarketType;
 import de.shurablack.jima.util.types.MuseumCategory;
 
-import java.util.Map;
+import java.util.*;
 
 /**
  * Provides methods to interact with various endpoints in the system.
@@ -158,6 +160,62 @@ public class Requester {
                 Endpoint.ITEMS,
                 null,
                 Map.of("query", query, "type", type.name().toLowerCase(), "page", String.valueOf(page)),
+                Items.class
+        ).join();
+    }
+
+    /**
+     * Retrieves all items by iterating through all item types and pages.<br><br>
+     * <b>WARNING:</b> This method can take multiple minutes and block your token, due to the large number of items.
+     * @return A response containing a set of all items.
+     */
+    public static Response<Set<Item>> getAllItems() {
+        Set<Item> items = new HashSet<>();
+
+        for (ItemType type : ItemType.values()) {
+            for (int page = 1 ; ; page++) {
+                Response<Items> response = Requester.searchItems(type, page);
+                if (!response.isSuccessful()) {
+                    return new Response<>(response.getResponseCode(), null, response.getError());
+                }
+
+                items.addAll(response.getData().getItems());
+                if (page == response.getData().getPagination().getLastPage()) {
+                    break;
+                }
+            }
+        }
+
+        return new Response<>(ResponseCode.SUCCESS, items, null);
+    }
+
+    /**
+     * Performs an advanced search for items using fuzzy matching on item names.
+     * @param query The search query.
+     * @return A response containing item details.
+     */
+    public static Response<Items> advancedSearchItems(String query) {
+        query = ItemNameMatcher.getBestMatch(query);
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.ITEMS,
+                null,
+                Map.of("query", query),
+                Items.class
+        ).join();
+    }
+
+    /**
+     * Performs an advanced search for items using fuzzy matching on item names.
+     * @param query The search query.
+     * @param candidates A list of candidate item names to match against.
+     * @return A response containing item details.
+     */
+    public static Response<Items> advancedSearchItems(String query, List<String> candidates) {
+        query = ItemNameMatcher.getBestMatch(query, candidates);
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.ITEMS,
+                null,
+                Map.of("query", query),
                 Items.class
         ).join();
     }

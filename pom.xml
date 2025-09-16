@@ -6,7 +6,7 @@
 
     <groupId>io.github.shurablack</groupId>
     <artifactId>JIMA</artifactId>
-    <version>1.1.5</version>
+    <version>1.2.1</version>
 
     <name>JIMA</name>
     <description>Java IdleMMO Public API wrapper</description>
@@ -64,6 +64,12 @@
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-api</artifactId>
             <version>2.25.1</version>
+        </dependency>
+        <!-- https://mvnrepository.com/artifact/org.apache.commons/commons-text -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-text</artifactId>
+            <version>1.14.0</version>
         </dependency>
     </dependencies>
 

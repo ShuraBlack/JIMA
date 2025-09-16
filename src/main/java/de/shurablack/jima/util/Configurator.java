@@ -20,7 +20,7 @@ public class Configurator {
     private static final Logger LOGGER = LogManager.getLogger(Configurator.class);
 
     // Singleton instance of the Configurator class
-    private static final Configurator INSTANCE = new Configurator();
+    private static Configurator INSTANCE;
 
     // Properties object to store configuration key-value pairs
     private final Properties properties;
@@ -31,6 +31,9 @@ public class Configurator {
      * @return the singleton instance of Configurator
      */
     public static Configurator getInstance() {
+        if (INSTANCE == null) {
+            INSTANCE = new Configurator();
+        }
         return INSTANCE;
     }
 
