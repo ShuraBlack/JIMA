@@ -1,10 +1,14 @@
 package de.shurablack.jima.util;
 
+import de.shurablack.jima.http.Requester;
+import de.shurablack.jima.http.Response;
+import de.shurablack.jima.model.auth.Authentication;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.File;
 import java.nio.file.Files;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ConcurrentSkipListSet;
@@ -81,6 +85,28 @@ public class TokenStore {
             tokens.add(entry);
         }
         return entry.getToken();
+    }
+
+    /**
+     * Retrieves a list of Authentication objects for all stored tokens.
+     * Only successful authentications are included in the returned list.
+     *
+     * @return A list of Authentication objects for valid tokens.
+     */
+    public List<Authentication> getTokenAuthentications() {
+        List<Authentication> authentications = new ArrayList<>();
+
+        for (TokenEntry entry : tokens) {
+            if (entry.getToken() == null) {
+                continue;
+            }
+            Response<Authentication> response = Requester.getAuthentication(entry.getToken());
+            if (response.isSuccessful()) {
+                authentications.add(response.getData());
+            }
+        }
+
+        return authentications;
     }
 
     /**

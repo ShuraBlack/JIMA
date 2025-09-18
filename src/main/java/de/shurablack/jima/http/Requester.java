@@ -52,6 +52,21 @@ public class Requester {
     }
 
     /**
+     * Retrieves authentication information using a provided token.
+     * @param token The authentication token.
+     * @return A response containing authentication details.
+     */
+    public static Response<Authentication> getAuthentication(String token) {
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.AUTHENTICATE,
+                null,
+                null,
+                Authentication.class,
+                token
+        ).join();
+    }
+
+    /**
      * Retrieves information about world bosses.
      * @return A response containing world boss details.
      */

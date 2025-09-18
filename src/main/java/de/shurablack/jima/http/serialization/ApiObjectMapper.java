@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import de.shurablack.jima.model.auth.Authentication;
+import de.shurablack.jima.model.item.GatherLocation;
 import de.shurablack.jima.model.item.recipe.RecipeExperience;
 import de.shurablack.jima.util.types.SecondaryStatType;
 import de.shurablack.jima.util.types.SkillType;
@@ -51,6 +52,7 @@ public class ApiObjectMapper extends ObjectMapper {
         // Register deserializers for complex types.
         module.addDeserializer(RecipeExperience.class, new RecipeExperienceDeserializer());
         module.addDeserializer(Authentication.class, new AuthenticationDeserializer());
+        module.addDeserializer(GatherLocation.class, new GatherLocationDeserializer());
 
         // Register deserializers for enum types.
         module.addDeserializer(SkillType.class, new SkillTypeDeserializer());

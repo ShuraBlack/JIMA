@@ -57,16 +57,26 @@ dependencies {
 </dependency>
 ```
 - Create a `jima-config.properties` file next to your build or inside your project folder with the following content:
+> [!NOTE]  
+> You can also use env variables instead of a properties file
+
+> [!TIP]  
+> The application will auto generate a `jima-config.properties` template file if it does not exist
+
 ```
-# config.properties
 API_KEY=<your_token>
 CONTACT_EMAIL=<your_email>
 APPLICATION_VERSION=<app_version>
 APPLICATION_NAME=<app_name>
+USE_ROTATING_TOKENS=<true/false>
 ```
-> **HINT:** You can also use env variables instead of a properties file
 
-> **HINT:** The application will auto generate a jima-config.properties template file if it does not exist
+> [!IMPORTANT]  
+> For Rotating tokens, you will need an additional file `jima-tokens.txt` with one token per line
+
+> [!CAUTION]
+> Inserting the tokens of other players requires disclosing like written [here](https://web.idle-mmo.com/wiki/more/api).<br>
+> It is not allowed to create multiple accounts to extend the rate limit.
 
 ## 🧪 Usage
 
@@ -75,50 +85,40 @@ APPLICATION_NAME=<app_name>
 Example: Fetching World Bosses
 
 ```java
-import de.shurablack.jima.http.Requester;
-import de.shurablack.jima.model.combat.worldboss.WorldBosses;
-
-public class Main {
-    public static void main(String[] args) {
-        var response = Requester.getWorldBosses();
-        if (response.isSuccessful()) {
-            WorldBosses bosses = response.getData();
-            bosses.getWorldBosses().forEach(boss -> {
-                System.out.println("Boss Name: " + boss.getName());
-                System.out.println("Location: " + boss.getLocation().getName());
-            });
-        } else {
-            System.err.println("Error: " + response.getError());
-        }
-    }
+var response = Requester.getWorldBosses();
+if (response.isSuccessful()) {
+    WorldBosses bosses = response.getData();
+    bosses.getWorldBosses().forEach(boss -> {
+        System.out.println("Boss Name: " + boss.getName());
+        System.out.println("Location: " + boss.getLocation().getName());
+    });
+} else {
+    System.err.println("Error: " + response.getError());
 }
 ```
 
 Example: Fetching Character Information
 
 ```java
-import de.shurablack.jima.http.Requester;
-import de.shurablack.jima.model.character.view.CharacterView;
-
-public class Main {
-    public static void main(String[] args) {
-        var response = Requester.getCharacter("hashedCharacterId");
-        if (response.isSuccessful()) {
-            CharacterView character = response.getData();
-            System.out.println("Character Name: " + character.getCharacter().getName());
-            System.out.println("Class: " + character.getCharacter().getClassType());
-        } else {
-            System.err.println("Error: " + response.getError());
-        }
-    }
+var response = Requester.getCharacter("hashedCharacterId");
+if (response.isSuccessful()) {
+    CharacterView view = response.getData();
+    System.out.println("Character Name: " + view.getCharacter().getName());
+    System.out.println("Class: " + view.getCharacter().getClassType());
+} else {
+    System.err.println("Error: " + response.getError());
 }
 ```
-
+> [!TIP]
+> - The `ApiObjectMapper` defines simple modules as well as an ObjectMapper that can be used to serialize/deserialize objects.<br>
+> - The `ImageLoader` is a convenience class for loading images from URLs.<br>
+> - You can get the Authentication of all stored tokens by calling `TokenStore.getTokenAuthentications()`.
 
 ## 📦 Dependencies
 [Lombok](https://projectlombok.org/) — Simplifies Java code with annotations. <br>
 [Jackson](https://github.com/FasterXML/jackson) — JSON serialization and deserialization. <br>
 [Log4j2](https://logging.apache.org/log4j/2.x/) — Advanced logging framework. <br>
+[Apache commons-text](https://commons.apache.org/proper/commons-text/) — String manipulation utilities. <br>
 
 ## 📜 License
 This project is licensed under the Apache License 2.0.

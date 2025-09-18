@@ -99,6 +99,7 @@ public class ItemDetail extends Item {
     /**
      * The location where the item can be gathered.
      */
+    @Nullable
     private GatherLocation whereToFind;
 
 }

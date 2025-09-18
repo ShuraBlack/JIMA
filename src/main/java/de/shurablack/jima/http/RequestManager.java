@@ -119,6 +119,27 @@ public class RequestManager {
     }
 
     /**
+     * Enqueues an HTTP GET request to be processed asynchronously with a specific token.
+     * @param endpoint the API endpoint to send the request to
+     * @param query the path parameters to replace in the endpoint URL
+     * @param parameter the query parameters to append to the URL
+     * @param type the class type of the expected response data
+     * @param token the authentication token to use for the request
+     * @return a CompletableFuture that will be completed with the response
+     * @param <T> the type of the response data
+     */
+    public <T> CompletableFuture<Response<T>> enqueueRequest(Endpoint endpoint, Map<String, String> query, Map<String, String> parameter, Class<T> type, String token) {
+        CompletableFuture<Response<T>> future = new CompletableFuture<>();
+        requestQueue.add(() -> {
+            String url = buildUrl(endpoint, query, parameter);
+            Response<T> response = get(url, type, token);
+            future.complete(response);
+            return null;
+        });
+        return future;
+    }
+
+    /**
      * Builds the full URL for the API request by replacing path parameters and appending query parameters.
      *
      * @param endpoint  the API endpoint containing the path
@@ -163,6 +184,56 @@ public class RequestManager {
                     .GET()
                     .build();
             
+            HttpResponse<String> response =
+                    client.send(request, HttpResponse.BodyHandlers.ofString());
+
+            String remaining = response.headers().firstValue(X_RATE_LIMIT_REMAINING).orElse("0");
+            TokenStore.getInstance().updateToken(TokenStore.getInstance().getToken(), Integer.parseInt(remaining));
+            if (remaining.equals("0")) {
+                LOGGER.warn("Rate limit reached! Stall requests until reset.");
+                handleRateLimit(response);
+                return get(url, type);
+            }
+
+            if (response.statusCode() == 429) {
+                LOGGER.warn("Received 429 Too Many Requests! Stall requests until reset.");
+                handleRateLimit(response);
+                return get(url, type);
+            }
+
+            if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                T data = mapper.readValue(response.body(), type);
+                return new Response<>(ResponseCode.fromCode(response.statusCode()), data, null);
+            } else {
+                return new Response<>(ResponseCode.fromCode(response.statusCode()), null, response.body());
+            }
+        } catch (Exception e) {
+            return new Response<>(ResponseCode.BAD_REQUEST, null, e.getMessage());
+        }
+    }
+
+    /**
+     * Sends an HTTP GET request to the specified URL using a specific token and processes the response.
+     *
+     * @param url   the URL to send the request to
+     * @param type  the class type of the expected response data
+     * @param token the authentication token to use for the request
+     * @param <T>   the type of the response data
+     * @return a Response object containing the response data or error
+     */
+    private <T> Response<T> get(String url, Class<T> type, String token) {
+        waitIfRateLimited();
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .setHeader("Authorization", "Bearer " + token)
+                    .setHeader("Accept", "application/json")
+                    .setHeader("User-Agent", Configurator.getInstance().get("APPLICATION_NAME") + "/" +
+                            Configurator.getInstance().get("APPLICATION_VERSION") + " (Contact: " +
+                            Configurator.getInstance().get("CONTACT_EMAIL") + ")")
+                    .GET()
+                    .build();
+
             HttpResponse<String> response =
                     client.send(request, HttpResponse.BodyHandlers.ofString());
 
