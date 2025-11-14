@@ -1,5 +1,6 @@
 package de.shurablack.jima.model;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import de.shurablack.jima.util.Nullable;
 import lombok.*;
 
@@ -31,10 +32,17 @@ public class Paged {
      */
     private int perPage;
 
+    @Nullable
+    @JsonProperty(required = false)
+    private Integer nextPage;
+
     /**
      * The total number of items.
      */
     private int total;
+
+    @JsonProperty(required = false)
+    private boolean hasMore;
 
     /**
      * The index of the first item on the current page. This field is optional.

@@ -1,6 +1,6 @@
 package de.shurablack.jima.model.item;
 
-import de.shurablack.jima.model.combat.Quality;
+import de.shurablack.jima.util.types.Quality;
 import de.shurablack.jima.util.Nullable;
 import lombok.*;
 

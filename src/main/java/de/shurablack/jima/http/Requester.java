@@ -11,6 +11,7 @@ import de.shurablack.jima.model.character.view.CharacterView;
 import de.shurablack.jima.model.combat.dungeon.Dungeons;
 import de.shurablack.jima.model.combat.enemy.Enemies;
 import de.shurablack.jima.model.combat.worldboss.WorldBosses;
+import de.shurablack.jima.model.guild.GuildMembers;
 import de.shurablack.jima.model.guild.GuildView;
 import de.shurablack.jima.model.guild.conquest.GuildConquest;
 import de.shurablack.jima.model.guild.conquest.GuildConquestInspection;
@@ -18,6 +19,7 @@ import de.shurablack.jima.model.item.Item;
 import de.shurablack.jima.model.item.ItemInspection;
 import de.shurablack.jima.model.item.Items;
 import de.shurablack.jima.model.item.market.MarketHistory;
+import de.shurablack.jima.model.pet.Listings;
 import de.shurablack.jima.model.shrine.ShrineInfo;
 import de.shurablack.jima.util.ItemNameMatcher;
 import de.shurablack.jima.util.types.ItemType;
@@ -451,6 +453,24 @@ public class Requester {
         ).join();
     }
 
+    public static Response<Listings> getCompanionExchangeListings() {
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.PET_EXCHANGE_LISTINGS,
+                null,
+                null,
+                Listings.class
+        ).join();
+    }
+
+    public static Response<Listings> getCompanionExchangeListings(int page) {
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.PET_EXCHANGE_LISTINGS,
+                null,
+                Map.of("page", String.valueOf(page)),
+                Listings.class
+        ).join();
+    }
+
     /**
      * Retrieves guild information based on its ID.
      * @param id The ID of the guild.
@@ -462,6 +482,20 @@ public class Requester {
                 Map.of("id", String.valueOf(id)),
                 null,
                 GuildView.class
+        ).join();
+    }
+
+    /**
+     * Retrieves guild members based on the guild ID.
+     * @param id The ID of the guild.
+     * @return A response containing guild member details.
+     */
+    public static Response<GuildMembers> getGuildMembers(int id) {
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.GUILD_MEMBERS,
+                Map.of("id", String.valueOf(id)),
+                null,
+                GuildMembers.class
         ).join();
     }
 

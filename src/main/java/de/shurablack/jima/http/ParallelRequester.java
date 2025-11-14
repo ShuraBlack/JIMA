@@ -11,6 +11,7 @@ import de.shurablack.jima.model.character.view.CharacterView;
 import de.shurablack.jima.model.combat.dungeon.Dungeons;
 import de.shurablack.jima.model.combat.enemy.Enemies;
 import de.shurablack.jima.model.combat.worldboss.WorldBosses;
+import de.shurablack.jima.model.guild.GuildMembers;
 import de.shurablack.jima.model.guild.GuildView;
 import de.shurablack.jima.model.guild.conquest.GuildConquest;
 import de.shurablack.jima.model.guild.conquest.GuildConquestInspection;
@@ -405,6 +406,20 @@ public class ParallelRequester {
                 Map.of("id", String.valueOf(id)),
                 null,
                 GuildView.class
+        );
+    }
+
+    /**
+     * Retrieves guild members based on the guild ID.
+     * @param id The ID of the guild.
+     * @return A response containing guild member details.
+     */
+    public static CompletableFuture<Response<GuildMembers>> getGuildMembers(int id) {
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.GUILD_MEMBERS,
+                Map.of("id", String.valueOf(id)),
+                null,
+                GuildMembers.class
         );
     }
 

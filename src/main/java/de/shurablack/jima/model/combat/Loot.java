@@ -1,6 +1,7 @@
 package de.shurablack.jima.model.combat;
 
 import de.shurablack.jima.util.Nullable;
+import de.shurablack.jima.util.types.Quality;
 import lombok.*;
 
 /**

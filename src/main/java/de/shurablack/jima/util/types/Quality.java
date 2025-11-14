@@ -1,4 +1,4 @@
-package de.shurablack.jima.model.combat;
+package de.shurablack.jima.util.types;
 
 /**
  * Represents the quality levels of an item or entity in the system.

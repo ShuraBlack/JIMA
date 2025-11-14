@@ -4,9 +4,11 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.module.SimpleModule;
+import de.shurablack.jima.model.Paged;
 import de.shurablack.jima.model.auth.Authentication;
 import de.shurablack.jima.model.item.GatherLocation;
 import de.shurablack.jima.model.item.recipe.RecipeExperience;
+import de.shurablack.jima.model.pet.PetListing;
 import de.shurablack.jima.util.types.SecondaryStatType;
 import de.shurablack.jima.util.types.SkillType;
 import de.shurablack.jima.util.types.StatType;
@@ -53,6 +55,7 @@ public class ApiObjectMapper extends ObjectMapper {
         module.addDeserializer(RecipeExperience.class, new RecipeExperienceDeserializer());
         module.addDeserializer(Authentication.class, new AuthenticationDeserializer());
         module.addDeserializer(GatherLocation.class, new GatherLocationDeserializer());
+        module.addDeserializer(PetListing.class, new PetListingDeserializer());
 
         // Register deserializers for enum types.
         module.addDeserializer(SkillType.class, new SkillTypeDeserializer());

@@ -13,13 +13,22 @@ import lombok.*;
 public class GuildReference {
 
     private int id;
+
     private String name;
+
     @Nullable
+    @JsonProperty(required = false)
     private String tag;
+
     @Nullable
+    @JsonProperty(required = false)
     private String iconUrl;
+
     @Nullable
     @JsonProperty(required = false)
     private String backgroundUrl;
+
+    @JsonProperty(required = false)
+    private int memberCount;
 
 }

@@ -87,9 +87,19 @@ public enum Endpoint {
     CHARACTER_PETS(BASE_URL.path + "/character/{hashed_character_id}/pets", "v1.character.pets"),
 
     /**
+     * Endpoint for retrieving companion exchange listings.
+     */
+    PET_EXCHANGE_LISTINGS(BASE_URL.path + "/pets/companion-exchange/listings", "v1.pets.companion_exchange.listings"),
+
+    /**
      * Endpoint for retrieving guild information.
      */
     GUILD_INFORMATION(BASE_URL.path + "/guild/{id}/information", "v1.guild.information"),
+
+    /**
+     * Endpoint for retrieving guild members.
+     */
+    GUILD_MEMBERS(BASE_URL.path + "/guild/{id}/members", "v1.guild.members"),
 
     /**
      * Endpoint for viewing guild conquests.

@@ -1,11 +1,9 @@
 package de.shurablack.jima.model.item;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import de.shurablack.jima.model.combat.Quality;
 import de.shurablack.jima.model.item.recipe.Recipe;
 import de.shurablack.jima.model.ref.UpgradeReference;
 import de.shurablack.jima.util.Nullable;
-import de.shurablack.jima.util.types.ItemType;
 import de.shurablack.jima.util.types.SecondaryStatType;
 import lombok.*;
 

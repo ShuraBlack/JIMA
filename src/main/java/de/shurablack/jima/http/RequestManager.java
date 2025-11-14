@@ -273,6 +273,7 @@ public class RequestManager {
                 .orElse("0");
 
         long resetEpoch = Long.parseLong(resetHeader) + 1;
+        resetEpoch = Math.max(resetEpoch, Instant.now().getEpochSecond() + 5);
         rateLimitReset = Instant.ofEpochSecond(resetEpoch);
         LOGGER.info("Rate limit will reset at {}", rateLimitReset);
     }
