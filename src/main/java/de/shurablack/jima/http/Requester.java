@@ -1,5 +1,6 @@
 package de.shurablack.jima.http;
 
+import de.shurablack.jima.model.Paged;
 import de.shurablack.jima.model.auth.Authentication;
 import de.shurablack.jima.model.character.CharacterAction;
 import de.shurablack.jima.model.character.CharacterAlts;
@@ -28,11 +29,52 @@ import de.shurablack.jima.util.types.MarketType;
 import de.shurablack.jima.util.types.MuseumCategory;
 
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 
 /**
- * Provides methods to interact with various endpoints in the system.
+ * Provides methods to interact with various API endpoints for the Idle MMO game.
+ *
+ * <p><b>Overview:</b></p>
  * This class contains static methods to perform HTTP requests and retrieve data for authentication,
- * characters, guilds, items, markets, and other entities.
+ * characters, guilds, items, markets, and other game entities. All methods follow a consistent pattern
+ * of returning a {@link Response} object that encapsulates the result, error messages, and response codes.
+ *
+ * <p><b>Request Execution:</b></p>
+ * <ul>
+ *   <li>All methods are <b>blocking</b> by default (they call {@link java.util.concurrent.CompletableFuture#join()})</li>
+ *   <li>Requests are managed by the singleton {@link RequestManager}, which handles HTTP communication</li>
+ *   <li>Token management is handled automatically by {@link de.shurablack.jima.util.TokenStore}</li>
+ * </ul>
+ *
+ * <p><b>Rate Limiting &amp; Retry Logic:</b></p>
+ * <ul>
+ *   <li>The library automatically detects 429 (Too Many Requests) responses</li>
+ *   <li>Automatic retries are scheduled based on the {@code X-RateLimit-Reset} header</li>
+ *   <li>Token rotation is supported for increased rate limits via {@link de.shurablack.jima.util.TokenStore}</li>
+ *   <li>Configure usage limits with {@link RequestManager#setUsageLimit(long)}</li>
+ * </ul>
+ *
+ * <p><b>Error Handling Pattern:</b></p>
+ * <pre>
+ * Response&lt;CharacterView&gt; response = Requester.getCharacter("characterId");
+ * if (response.isSuccessful()) {
+ *     CharacterView character = response.getData();
+ *     System.out.println("Name: " + character.getCharacter().getName());
+ * } else {
+ *     System.err.println("Error: " + response.getError());
+ *     ResponseCode code = response.getResponseCode();
+ *     if (code == ResponseCode.UNAUTHORIZED) {
+ *         // Handle invalid token
+ *     } else if (code == ResponseCode.RATE_LIMIT_EXCEEDED) {
+ *         // Handle rate limit
+ *     }
+ * }
+ * </pre>
+ *
+ * @see RequestManager
+ * @see de.shurablack.jima.util.TokenStore
+ * @see Response
  */
 public class Requester {
 
@@ -136,6 +178,111 @@ public class Requester {
     }
 
     /**
+     * Searches for all items of a specific type, automatically handling pagination.
+     *
+     * <p><b>Features:</b></p>
+     * <ul>
+     *   <li>Automatically retrieves all pages of results</li>
+     *   <li>Combines results into a single list for convenience</li>
+     *   <li>Returns empty list if the item type yields no results</li>
+     * </ul>
+     *
+     * <p><b>Example:</b></p>
+     * <pre>
+     * Response&lt;Items&gt; response = Requester.searchType(ItemType.WEAPON);
+     * if (response.isSuccessful()) {
+     *     Items result = response.getData();
+     *     List&lt;Item&gt; weapons = result.getItems();
+     *     System.out.println("Found " + weapons.size() + " weapons");
+     *     weapons.stream()
+     *         .sorted(Comparator.comparing(Item::getName))
+     *         .forEach(item -&gt; System.out.println(item.getName()));
+     * }
+     * </pre>
+     *
+     * @param type The ItemType to search for (e.g., WEAPON, ARMOR, CONSUMABLE, etc.)
+     * @return A response containing all items of the specified type across all pages.
+     *         The response data includes a Paged object with pagination metadata.
+     */
+    public static Response<Items> searchType(ItemType type) {
+        List<Item> items = new ArrayList<>();
+
+        for (int page = 1 ; ; page++) {
+            Response<Items> response = Requester.searchItems(type, page);
+            if (!response.isSuccessful()) {
+                return new Response<>(response.getResponseCode(), null, response.getError());
+            }
+
+            items.addAll(response.getData().getItems());
+            if (page == response.getData().getPagination().getLastPage()) {
+                break;
+            }
+        }
+
+        Paged pagination = new Paged();
+        pagination.setCurrentPage(1);
+        pagination.setLastPage(1);
+        pagination.setTotal(1);
+        pagination.setHasMore(false);
+        return new Response<>(ResponseCode.SUCCESS, new Items(items, pagination), null);
+    }
+
+    /**
+     * Searches for all items of multiple specific types, automatically handling pagination.
+     *
+     * <p><b>Features:</b></p>
+     * <ul>
+     *   <li>Retrieves items across multiple item types in a single call</li>
+     *   <li>Automatically handles pagination for each type</li>
+     *   <li>Combines all results into a single list</li>
+     *   <li>More efficient than calling {@link #searchType(ItemType)} multiple times</li>
+     * </ul>
+     *
+     * <p><b>Example:</b></p>
+     * <pre>
+     * // Get all weapons and armor
+     * Response&lt;Items&gt; response = Requester.searchTypes(
+     *     List.of(ItemType.WEAPON, ItemType.ARMOR, ItemType.ACCESSORY)
+     * );
+     * if (response.isSuccessful()) {
+     *     List&lt;Item&gt; equipment = response.getData().getItems();
+     *     long weaponCount = equipment.stream()
+     *         .filter(item -&gt; item.getType().equals(ItemType.WEAPON))
+     *         .count();
+     *     System.out.println("Found " + equipment.size() + " items (" + weaponCount + " weapons)");
+     * }
+     * </pre>
+     *
+     * @param types The list of ItemTypes to search for. If empty or null, returns an empty response.
+     * @return A response containing all items of the specified types across all pages.
+     *         The response data includes a Paged object with pagination metadata.
+     */
+    public static Response<Items> searchTypes(List<ItemType> types) {
+        List<Item> items = new ArrayList<>();
+
+        for (ItemType type : types) {
+            for (int page = 1 ; ; page++) {
+                Response<Items> response = Requester.searchItems(type, page);
+                if (!response.isSuccessful()) {
+                    return new Response<>(response.getResponseCode(), null, response.getError());
+                }
+
+                items.addAll(response.getData().getItems());
+                if (page == response.getData().getPagination().getLastPage()) {
+                    break;
+                }
+            }
+        }
+
+        Paged pagination = new Paged();
+        pagination.setCurrentPage(1);
+        pagination.setLastPage(1);
+        pagination.setTotal(1);
+        pagination.setHasMore(false);
+        return new Response<>(ResponseCode.SUCCESS, new Items(items, pagination), null);
+    }
+
+    /**
      * Searches for items with pagination.
      * @param page The page number to retrieve.
      * @param type The type of items to search for.
@@ -182,12 +329,42 @@ public class Requester {
     }
 
     /**
-     * Retrieves all items by iterating through all item types and pages.<br><br>
-     * <b>WARNING:</b> This method can take multiple minutes and block your token, due to the large number of items.
-     * @return A response containing a set of all items.
+     * Retrieves all items by iterating through all item types and pages.
+     *
+     * <p><b>WARNING:</b> This method is <b>blocking and resource-intensive</b>.</p>
+     * <ul>
+     *   <li>Can take <b>several minutes</b> to complete, depending on the number of items and API rate limits</li>
+     *   <li>Makes hundreds of individual API requests</li>
+     *   <li>Should not be called frequently or in time-sensitive contexts</li>
+     * </ul>
+     *
+     * <p><b>Better Alternatives:</b></p>
+     * <ul>
+     *   <li>Use {@link #searchType(ItemType)} to get items of a specific type</li>
+     *   <li>Use {@link #searchTypes(List)} to get items of multiple types at once</li>
+     *   <li>Use {@link #searchItems(String)} for targeted searches</li>
+     * </ul>
+     *
+     * <p><b>Example:</b></p>
+     * <pre>
+     * // Get all items (not recommended unless necessary)
+     * Response&lt;List&lt;Item&gt;&gt; response = Requester.getAllItems();
+     * if (response.isSuccessful()) {
+     *     List&lt;Item&gt; allItems = response.getData();
+     *     System.out.println("Total items: " + allItems.size());
+     *     allItems.forEach(item -&gt; System.out.println(item.getName()));
+     * } else {
+     *     System.err.println("Failed to fetch items: " + response.getError());
+     * }
+     *
+     * // Recommended: Get items of specific types instead
+     * Response&lt;Items&gt; weaponsResponse = Requester.searchType(ItemType.WEAPON);
+     * </pre>
+     *
+     * @return A response containing a complete list of all items in the game
      */
-    public static Response<Set<Item>> getAllItems() {
-        Set<Item> items = new HashSet<>();
+    public static Response<List<Item>> getAllItems() {
+        List<Item> items = new ArrayList<>();
 
         for (ItemType type : ItemType.values()) {
             for (int page = 1 ; ; page++) {
@@ -206,10 +383,37 @@ public class Requester {
         return new Response<>(ResponseCode.SUCCESS, items, null);
     }
 
+
+
     /**
      * Performs an advanced search for items using fuzzy matching on item names.
-     * @param query The search query.
-     * @return A response containing item details.
+     *
+     * <p><b>How It Works:</b></p>
+     * <ul>
+     *   <li>Uses Jaro-Winkler similarity algorithm for fuzzy matching</li>
+     *   <li>Tolerates typos and spelling variations in item names</li>
+     *   <li>Matches against the default list of all items (cached after first load)</li>
+     *   <li>Returns results for the best-matching item name</li>
+     * </ul>
+     *
+     * <p><b>Example:</b></p>
+     * <pre>
+     * // User types "iron sorwd" (with typo)
+     * Response&lt;Items&gt; response = Requester.advancedSearchItems("iron sorwd");
+     * // Will find "Iron Sword" and return matching results
+     *
+     * // Handles partial matches
+     * Response&lt;Items&gt; partialMatch = Requester.advancedSearchItems("gold");
+     * // Might find "Golden Ring", "Goldsmith's Hammer", etc.
+     * </pre>
+     *
+     * @param query The search query string (will be fuzzy-matched against known item names).
+     *              Case-insensitive and tolerant of typos.
+     * @return A response containing items matching the best-matched item name,
+     *         or an error if no suitable match is found.
+     *
+     * @see #advancedSearchItems(String, List)
+     * @see de.shurablack.jima.util.ItemNameMatcher#getBestMatch(String)
      */
     public static Response<Items> advancedSearchItems(String query) {
         query = ItemNameMatcher.getBestMatch(query);
@@ -222,10 +426,48 @@ public class Requester {
     }
 
     /**
-     * Performs an advanced search for items using fuzzy matching on item names.
-     * @param query The search query.
+     * Performs an advanced search for items using fuzzy matching against specific candidates.
+     *
+     * <p><b>How It Works:</b></p>
+     * <ul>
+     *   <li>Uses Jaro-Winkler similarity algorithm for fuzzy matching</li>
+     *   <li>Matches the query against the provided list of candidate item names</li>
+     *   <li>Returns results for the best-matching candidate name</li>
+     *   <li>More flexible than {@link #advancedSearchItems(String)} as you control the candidates</li>
+     * </ul>
+     *
+     * <p><b>Use Cases:</b></p>
+     * <ul>
+     *   <li>Search within a filtered subset of items</li>
+     *   <li>Match against custom item name lists</li>
+     *   <li>Implement type-specific advanced search</li>
+     * </ul>
+     *
+     * <p><b>Example:</b></p>
+     * <pre>
+     * // Get all weapons first
+     * Response&lt;Items&gt; weaponResponse = Requester.searchType(ItemType.WEAPON);
+     * if (weaponResponse.isSuccessful()) {
+     *     List&lt;String&gt; weaponNames = weaponResponse.getData().getItems()
+     *         .stream()
+     *         .map(Item::getName)
+     *         .collect(Collectors.toList());
+     *
+     *     // Now search within weapons with fuzzy matching
+     *     Response&lt;Items&gt; searchResponse = Requester.advancedSearchItems("iron sorwd", weaponNames);
+     *     // Will find best matching weapon
+     * }
+     * </pre>
+     *
+     * @param query The search query string (will be fuzzy-matched against candidates).
+     *              Case-insensitive and tolerant of typos.
      * @param candidates A list of candidate item names to match against.
-     * @return A response containing item details.
+     *                   If null or empty, returns an empty response.
+     * @return A response containing items matching the best-matched candidate name,
+     *         or an error if no match is found in the candidates.
+     *
+     * @see #advancedSearchItems(String)
+     * @see de.shurablack.jima.util.ItemNameMatcher#getBestMatch(String, List)
      */
     public static Response<Items> advancedSearchItems(String query, List<String> candidates) {
         query = ItemNameMatcher.getBestMatch(query, candidates);
@@ -252,11 +494,165 @@ public class Requester {
     }
 
     /**
-     * Retrieves market history for an item.
-     * @param hashedItemId The hashed ID of the item.
-     * @param tier The tier of the item.
-     * @param type The market type (listings or orders).
-     * @return A response containing market history details.
+     * Inspects multiple items in parallel for improved efficiency.
+     * This method executes all item inspection requests concurrently, which is significantly faster
+     * than calling inspectItem() sequentially for each ID, especially with large lists.
+     *
+     * <p><b>Features:</b></p>
+     * <ul>
+     *   <li>Executes requests in parallel using CompletableFuture</li>
+     *   <li>Blocks until all requests complete</li>
+     *   <li>Preserves order - results correspond to input order</li>
+     * </ul>
+     *
+     * <p><b>Example:</b></p>
+     * <pre>
+     * List&lt;String&gt; itemIds = Arrays.asList("id1", "id2", "id3");
+     * List&lt;Response&lt;ItemInspection&gt;&gt; results = Requester.getMultipleItemInspections(itemIds);
+     *
+     * ResponseList&lt;ItemInspection&gt; list = new ResponseList&lt;&gt;(results);
+     * List&lt;ItemInspection&gt; items = list.getSuccessful();
+     * items.stream()
+     *     .sorted(Comparator.comparing(ItemInspection::getPrice).reversed())
+     *     .forEach(item -&gt; System.out.println(item.getName() + ": " + item.getPrice()));
+     * </pre>
+     *
+     * @param itemIds A list of hashed item IDs to inspect.
+     * @return A list of Response objects for item inspections, in the same order as input.
+     */
+    public static List<Response<ItemInspection>> getMultipleItemInspections(List<String> itemIds) {
+        List<CompletableFuture<Response<ItemInspection>>> futures = itemIds.stream()
+                .map(id -> RequestManager.getInstance().enqueueRequest(
+                        Endpoint.ITEM_INSPECTION,
+                        Map.of("hashed_item_id", id),
+                        null,
+                        ItemInspection.class
+                ))
+                .collect(Collectors.toList());
+
+        return futures.stream()
+                .map(CompletableFuture::join)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Inspects all items by iterating through all item types and pages.
+     *
+     * <p><b>WARNING:</b> This method is <b>extremely resource-intensive and blocking</b>.</p>
+     * <ul>
+     *   <li>Can take <b>many minutes</b> to complete (potentially 10+ minutes)</li>
+     *   <li>Makes thousands of individual API requests (one per item)</li>
+     *   <li>Significantly higher rate limit usage than {@link #getAllItems()}</li>
+     *   <li>Should only be used if detailed information for every item is absolutely required</li>
+     * </ul>
+     *
+     * <p><b>Better Alternatives:</b></p>
+     * <ul>
+     *   <li>Use {@link #inspectItem(String)} to get details for specific items</li>
+     *   <li>Use targeted searches with {@link #searchType(ItemType)} first, then inspect selectively</li>
+     * </ul>
+     *
+     * <p><b>Parameters Explained:</b></p>
+     * <ul>
+     *   <li><code>cancelOnFailure=true</code>: Stops immediately at first error (useful for debugging)</li>
+     *   <li><code>cancelOnFailure=false</code>: Continues to attempt all items even if some fail (useful for gathering maximum data)</li>
+     * </ul>
+     *
+     * <p><b>Example:</b></p>
+     * <pre>
+     * // Get all item inspections, continuing even if some requests fail
+     * Response&lt;List&lt;ItemInspection&gt;&gt; response = Requester.inspectAllItems(false);
+     * if (response.isSuccessful()) {
+     *     List&lt;ItemInspection&gt; items = response.getData();
+     *     System.out.println("Inspected " + items.size() + " items");
+     *     items.stream()
+     *         .sorted(Comparator.comparing(ItemInspection::getPrice).reversed())
+     *         .limit(10)
+     *         .forEach(item -&gt; System.out.println(
+     *             item.getName() + ": " + item.getPrice() + " gold"
+     *         ));
+     * } else {
+     *     System.err.println("Failed: " + response.getError());
+     * }
+     * </pre>
+     *
+     * @param cancelOnFailure If true, returns immediately on the first failed request.
+     *                        If false, skips failed items and continues with remaining items.
+     *                        Use true for debugging, false for comprehensive data gathering.
+     * @return A response containing a list of item inspections. May be incomplete if
+     *         {@code cancelOnFailure=false} and some requests fail.
+     */
+    public static Response<List<ItemInspection>> inspectAllItems(boolean cancelOnFailure) {
+        List<ItemInspection> inspections = new ArrayList<>();
+
+        for (ItemType type : ItemType.values()) {
+            for (int page = 1 ; ; page++) {
+                Response<Items> response = Requester.searchItems(type, page);
+                if (!response.isSuccessful() && cancelOnFailure) {
+                    return new Response<>(response.getResponseCode(), null, response.getError());
+                }
+
+                if (!response.isSuccessful()) {
+                    break;
+                }
+
+                for (Item item : response.getData().getItems()) {
+                    Response<ItemInspection> inspectionResponse = Requester.inspectItem(item.getHashedId());
+                    if (!inspectionResponse.isSuccessful() && cancelOnFailure) {
+                        return new Response<>(inspectionResponse.getResponseCode(), null, inspectionResponse.getError());
+                    }
+                    if (!inspectionResponse.isSuccessful()) {
+                        continue;
+                    }
+                    inspections.add(inspectionResponse.getData());
+                }
+
+                if (page == response.getData().getPagination().getLastPage()) {
+                    break;
+                }
+            }
+        }
+
+        return new Response<>(ResponseCode.SUCCESS, inspections, null);
+    }
+
+    /**
+     * Retrieves market history for an item with specific tier and market type.
+     *
+     * <p><b>Parameters Explained:</b></p>
+     * <ul>
+     *   <li><code>hashedItemId</code>: The unique identifier returned by item search/inspection endpoints</li>
+     *   <li><code>tier</code>: The quality tier of the item (typically 0-5, higher = more valuable)</li>
+     *   <li><code>type</code>: {@link MarketType#LISTINGS} for sell orders, {@link MarketType#ORDERS} for buy orders</li>
+     * </ul>
+     *
+     * <p><b>Example:</b></p>
+     * <pre>
+     * // Get sell order history for an item at tier 0
+     * Response&lt;MarketHistory&gt; response = Requester.getMarketHistory(
+     *     "abc123def456",           // Item ID from search/inspect
+     *     0,                        // Tier 0 (basic quality)
+     *     MarketType.LISTINGS       // Listing prices (what people are selling for)
+     * );
+     * if (response.isSuccessful()) {
+     *     MarketHistory history = response.getData();
+     *     System.out.println("Latest price: " + history.getLatestPrice());
+     *     System.out.println("Average price: " + history.getAveragePrice());
+     * }
+     * </pre>
+     *
+     * @param hashedItemId The hashed ID of the item (obtained from search or inspect endpoints).
+     *                     This is a unique identifier for the specific item.
+     * @param tier The quality tier of the item. Typical range: 0-5, where 0 is basic and
+     *             higher numbers represent increasingly rare/valuable tiers.
+     * @param type The market type to query: {@link MarketType#LISTINGS} for seller prices,
+     *             {@link MarketType#ORDERS} for buyer prices.
+     * @return A response containing market history data including listing/order information,
+     *         pricing trends, and historical records.
+     *
+     * @see #getMarketHistory(String, MarketType)
+     * @see #getMarketListingHistory(String)
+     * @see #getMarketOrderHistory(String)
      */
     public static Response<MarketHistory> getMarketHistory(String hashedItemId, int tier, MarketType type) {
         return RequestManager.getInstance().enqueueRequest(
@@ -268,10 +664,30 @@ public class Requester {
     }
 
     /**
-     * Retrieves market history for an item with a default tier of 0.
-     * @param hashedItemId The hashed ID of the item.
-     * @param type The market type (listings or orders).
-     * @return A response containing market history details.
+     * Retrieves market history for an item at tier 0 (basic quality).
+     *
+     * <p>This is a convenience method that automatically uses tier 0. To query other tiers,
+     * use {@link #getMarketHistory(String, int, MarketType)} instead.</p>
+     *
+     * <p><b>Example:</b></p>
+     * <pre>
+     * // Get listing prices for an item (tier 0)
+     * Response&lt;MarketHistory&gt; response = Requester.getMarketHistory(
+     *     "abc123def456",
+     *     MarketType.LISTINGS
+     * );
+     * if (response.isSuccessful()) {
+     *     MarketHistory history = response.getData();
+     *     System.out.println("Current ask: " + history.getLatestPrice());
+     * }
+     * </pre>
+     *
+     * @param hashedItemId The hashed ID of the item (obtained from search or inspect endpoints).
+     * @param type The market type: {@link MarketType#LISTINGS} for seller prices,
+     *             {@link MarketType#ORDERS} for buyer prices.
+     * @return A response containing market history data at tier 0.
+     *
+     * @see #getMarketHistory(String, int, MarketType)
      */
     public static Response<MarketHistory> getMarketHistory(String hashedItemId, MarketType type) {
         return RequestManager.getInstance().enqueueRequest(
@@ -453,6 +869,10 @@ public class Requester {
         ).join();
     }
 
+    /**
+     * Retrieves companion exchange listings.
+     * @return A response containing companion exchange listing details.
+     */
     public static Response<Listings> getCompanionExchangeListings() {
         return RequestManager.getInstance().enqueueRequest(
                 Endpoint.PET_EXCHANGE_LISTINGS,
@@ -462,6 +882,11 @@ public class Requester {
         ).join();
     }
 
+    /**
+     * Retrieves companion exchange listings for a specific page.
+     * @param page The page number to retrieve.
+     * @return A response containing companion exchange listing details.
+     */
     public static Response<Listings> getCompanionExchangeListings(int page) {
         return RequestManager.getInstance().enqueueRequest(
                 Endpoint.PET_EXCHANGE_LISTINGS,
@@ -469,6 +894,50 @@ public class Requester {
                 Map.of("page", String.valueOf(page)),
                 Listings.class
         ).join();
+    }
+
+    /**
+     * Fetches multiple characters in parallel for improved efficiency.
+     * This method executes all character requests concurrently, which is significantly faster
+     * than calling getCharacter() sequentially for each ID, especially with large lists.
+     *
+     * <p><b>Features:</b></p>
+     * <ul>
+     *   <li>Executes requests in parallel using CompletableFuture</li>
+     *   <li>Blocks until all requests complete or an error occurs</li>
+     *   <li>Preserves order - results correspond to input order</li>
+     * </ul>
+     *
+     * <p><b>Example:</b></p>
+     * <pre>
+     * List&lt;String&gt; characterIds = Arrays.asList("char1", "char2", "char3");
+     * List&lt;Response&lt;CharacterView&gt;&gt; results = Requester.getMultipleCharacters(characterIds);
+     *
+     * results.forEach(response -&gt; {
+     *     if (response.isSuccessful()) {
+     *         System.out.println("Level: " + response.getData().getCharacter().getLevel());
+     *     } else {
+     *         System.err.println("Failed: " + response.getError());
+     *     }
+     * });
+     * </pre>
+     *
+     * @param characterIds A list of character IDs to fetch.
+     * @return A list of Response objects corresponding to each character ID, in the same order as input.
+     */
+    public static List<Response<CharacterView>> getMultipleCharacters(List<String> characterIds) {
+        List<CompletableFuture<Response<CharacterView>>> futures = characterIds.stream()
+                .map(id -> RequestManager.getInstance().enqueueRequest(
+                        Endpoint.CHARACTER_VIEW,
+                        Map.of("hashed_character_id", id),
+                        null,
+                        CharacterView.class
+                ))
+                .collect(Collectors.toList());
+
+        return futures.stream()
+                .map(CompletableFuture::join)
+                .collect(Collectors.toList());
     }
 
     /**
@@ -486,6 +955,46 @@ public class Requester {
     }
 
     /**
+     * Fetches multiple guilds in parallel for improved efficiency.
+     * This method executes all guild requests concurrently, which is significantly faster
+     * than calling getGuild() sequentially for each ID, especially with large lists.
+     *
+     * <p><b>Features:</b></p>
+     * <ul>
+     *   <li>Executes requests in parallel using CompletableFuture</li>
+     *   <li>Blocks until all requests complete</li>
+     *   <li>Preserves order - results correspond to input order</li>
+     * </ul>
+     *
+     * <p><b>Example:</b></p>
+     * <pre>
+     * List&lt;Integer&gt; guildIds = Arrays.asList(1, 2, 3);
+     * List&lt;Response&lt;GuildView&gt;&gt; results = Requester.getMultipleGuilds(guildIds);
+     *
+     * ResponseList&lt;GuildView&gt; list = new ResponseList&lt;&gt;(results);
+     * List&lt;GuildView&gt; successful = list.getSuccessful();
+     * System.out.println("Loaded " + successful.size() + " guilds");
+     * </pre>
+     *
+     * @param guildIds A list of guild IDs to fetch.
+     * @return A list of Response objects corresponding to each guild ID, in the same order as input.
+     */
+    public static List<Response<GuildView>> getMultipleGuilds(List<Integer> guildIds) {
+        List<CompletableFuture<Response<GuildView>>> futures = guildIds.stream()
+                .map(id -> RequestManager.getInstance().enqueueRequest(
+                        Endpoint.GUILD_INFORMATION,
+                        Map.of("id", String.valueOf(id)),
+                        null,
+                        GuildView.class
+                ))
+                .collect(Collectors.toList());
+
+        return futures.stream()
+                .map(CompletableFuture::join)
+                .collect(Collectors.toList());
+    }
+
+    /**
      * Retrieves guild members based on the guild ID.
      * @param id The ID of the guild.
      * @return A response containing guild member details.
@@ -497,6 +1006,46 @@ public class Requester {
                 null,
                 GuildMembers.class
         ).join();
+    }
+
+    /**
+     * Fetches guild members for multiple guilds in parallel for improved efficiency.
+     * This method executes all guild member requests concurrently, which is significantly faster
+     * than calling getGuildMembers() sequentially for each guild.
+     *
+     * <p><b>Features:</b></p>
+     * <ul>
+     *   <li>Executes requests in parallel using CompletableFuture</li>
+     *   <li>Blocks until all requests complete</li>
+     *   <li>Preserves order - results correspond to input order</li>
+     * </ul>
+     *
+     * <p><b>Example:</b></p>
+     * <pre>
+     * List&lt;Integer&gt; guildIds = Arrays.asList(1, 2, 3);
+     * List&lt;Response&lt;GuildMembers&gt;&gt; results = Requester.getMultipleGuildMembers(guildIds);
+     *
+     * ResponseList&lt;GuildMembers&gt; list = new ResponseList&lt;&gt;(results);
+     * list.printSummary();  // Shows success rate
+     * List&lt;GuildMembers&gt; successful = list.getSuccessful();
+     * </pre>
+     *
+     * @param guildIds A list of guild IDs to fetch members for.
+     * @return A list of Response objects for guild members, in the same order as input.
+     */
+    public static List<Response<GuildMembers>> getMultipleGuildMembers(List<Integer> guildIds) {
+        List<CompletableFuture<Response<GuildMembers>>> futures = guildIds.stream()
+                .map(id -> RequestManager.getInstance().enqueueRequest(
+                        Endpoint.GUILD_MEMBERS,
+                        Map.of("id", String.valueOf(id)),
+                        null,
+                        GuildMembers.class
+                ))
+                .collect(Collectors.toList());
+
+        return futures.stream()
+                .map(CompletableFuture::join)
+                .collect(Collectors.toList());
     }
 
     /**

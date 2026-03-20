@@ -35,11 +35,6 @@ public enum ResponseCode {
     FORBIDDEN(403, "Insufficient permissions or account banned"),
 
     /**
-     * Indicates that the requested endpoint or entity does not exist.
-     */
-    NOT_FOUND(404, "Endpoint or entity does not exist"),
-
-    /**
      * Indicates that the request could not be processed due to
      * validation errors. Additional details can be found in the
      * errors field.

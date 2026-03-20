@@ -97,6 +97,11 @@ public enum SkillType {
     MEDITATION,
 
     /**
+     * Represents the skill type for construction.
+     */
+    CONSTRUCTION,
+
+    /**
      * Represents an unknown skill type.
      */
     UNKNOWN;

@@ -107,13 +107,13 @@ public class ItemNameMatcher {
      * Logs an error if the API request fails or if the file cannot be written.
      */
     public static void updateListFile() {
-        Response<Set<Item>> response = Requester.getAllItems();
+        Response<List<Item>> response = Requester.getAllItems();
         if (!response.isSuccessful()) {
             LOGGER.error("Failed to fetch items from API: " + response.getError());
             return;
         }
 
-        Set<Item> items = response.getData();
+        List<Item> items = response.getData();
         List<String> itemNames = items.stream()
                 .map(Item::getName)
                 .sorted()

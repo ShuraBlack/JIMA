@@ -2,6 +2,7 @@ package de.shurablack.jima.util.types;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
+import java.util.stream.Stream;
 
 /**
  * Represents the types of locations in the system.
@@ -66,4 +67,29 @@ public enum LocationType {
      */
     private final String id;
 
+    /**
+     * Converts a string to the corresponding LocationType enum value.
+     * Supports both enum names and location IDs (case-insensitive for names).
+     *
+     * @param value The string representation of the location (enum name or ID, case-insensitive for names).
+     * @return The matching LocationType enum value. Returns THE_CITADEL if no match is found.
+     */
+    public static LocationType fromString(String value) {
+        if (value == null) {
+            return THE_CITADEL;
+        }
+
+        // Try matching by ID first (exact match)
+        for (LocationType location : values()) {
+            if (location.id.equals(value)) {
+                return location;
+            }
+        }
+
+        // Try matching by enum name (case-insensitive)
+        return Stream.of(values())
+                .filter(location -> location.name().equalsIgnoreCase(value))
+                .findFirst()
+                .orElse(THE_CITADEL);
+    }
 }

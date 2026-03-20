@@ -1,5 +1,6 @@
 package de.shurablack.jima.model.character.pet;
 
+import de.shurablack.jima.model.pet.Evolution;
 import de.shurablack.jima.util.types.Quality;
 import de.shurablack.jima.util.Nullable;
 import lombok.*;
@@ -72,16 +73,6 @@ public class PetDetail {
     private Health health;
 
     /**
-     * The happiness details of the pet.
-     */
-    private Happiness happiness;
-
-    /**
-     * The hunger details of the pet.
-     */
-    private Hunger hunger;
-
-    /**
      * Indicates whether the pet is currently equipped.
      */
     private boolean equipped;
@@ -92,6 +83,11 @@ public class PetDetail {
      */
     @Nullable
     private Battle battle;
+
+    /**
+     * The evolution details of the pet.
+     */
+    private Evolution evolution;
 
     /**
      * The location details associated with the pet.

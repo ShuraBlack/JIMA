@@ -171,4 +171,16 @@ public class Metric {
      */
     private Map<String, Long> tavern;
 
+    /**
+     * Metrics related to league activities.
+     * The key represents the league type, and the value represents the associated metric value.
+     */
+    private Map<String, Long> league;
+
+    /**
+     * Metrics related to quest activities.
+     * The key represents the quest name, and the value represents the associated metric value.
+     */
+    private Map<String, Long> quest;
+
 }

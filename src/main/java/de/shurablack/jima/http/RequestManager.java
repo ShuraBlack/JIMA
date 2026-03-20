@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import de.shurablack.jima.http.serialization.ApiObjectMapper;
 import de.shurablack.jima.util.Configurator;
 import de.shurablack.jima.util.TokenStore;
+import lombok.Getter;
+import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -15,6 +17,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.*;
 
 /**
@@ -23,129 +26,265 @@ import java.util.concurrent.*;
  */
 public class RequestManager {
 
-    // Logger instance for logging messages
     private static final Logger LOGGER = LogManager.getLogger(RequestManager.class);
-
-    // Singleton instance of the Requester class
     private static final RequestManager INSTANCE = new RequestManager();
 
-    // HTTP header constants for rate limiting
-    public static final String X_RATE_LIMIT_REMAINING = "X-RateLimit-Remaining";
+    private volatile boolean shuttingDown = false;
+    private final Set<CompletableFuture<?>> pendingRequests = ConcurrentHashMap.newKeySet();
 
-    // HTTP header constant for rate limit reset time
-    public static final String X_RATE_LIMIT_RESET = "X-RateLimit-Reset";
+    private static final String X_RATE_LIMIT_REMAINING = "X-RateLimit-Remaining";
+    private static final String X_RATE_LIMIT_RESET = "X-RateLimit-Reset";
 
-    // Flag indicating whether the Requester is running
-    private volatile boolean running = true;
-
-    // HTTP client for sending requests
     private final HttpClient client = HttpClient.newHttpClient();
-
-    // ObjectMapper for JSON serialization and deserialization
+    @Getter
     private final ObjectMapper mapper = new ApiObjectMapper();
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
 
-    // Timestamp indicating when the rate limit will reset
-    private volatile Instant rateLimitReset = Instant.now();
-
-    // Queue for storing HTTP request tasks
-    private final BlockingQueue<Callable<?>> requestQueue = new LinkedBlockingQueue<>();
-
-    // Executor service for processing the request queue
-    private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private long usageLimit = 0;
 
     /**
-     * Private constructor to initialize the Requester.
-     * Starts the worker thread and sets up a shutdown hook.
+     * Private constructor to enforce singleton pattern.
+     * Initializes the Configurator and sets up a shutdown hook to cleanly stop the scheduler.
      */
     private RequestManager() {
-        worker.submit(this::processQueue);
         Configurator.getInstance(); // Ensure Configurator is initialized
-
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            LOGGER.info("Shutdown detected – stopping Requester...");
-            stop();
+            LOGGER.info("Shutdown detected – stopping RequestManager...");
+            shuttingDown = true;
+
+            // Scheduler stoppen
+            scheduler.shutdownNow();
+
+            // Alle offenen Requests abbrechen
+            pendingRequests.forEach(f -> f.completeExceptionally(
+                    new CancellationException("Application shutting down")
+            ));
+            pendingRequests.clear();
         }));
     }
 
     /**
-     * Retrieves the singleton instance of the Requester class.
+     * Retrieves the singleton instance of the RequestManager.
      *
-     * @return the singleton instance of Requester
+     * @return The singleton instance of RequestManager.
      */
     public static RequestManager getInstance() {
         return INSTANCE;
     }
 
     /**
-     * Processes the request queue by executing tasks while the Requester is running.
-     * Waits for rate limits to reset before sending requests.
+     * Sets the log level for the RequestManager.
+     *
+     * @param level The log level to set (e.g., DEBUG, INFO, WARN, ERROR).
      */
-    private void processQueue() {
-        while (running || !requestQueue.isEmpty()) {
-            try {
-                Callable<?> task = requestQueue.poll(500, TimeUnit.MILLISECONDS);
-                if (task != null) {
-                    waitIfRateLimited();
-                    task.call();
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
-            } catch (Exception e) {
-                LOGGER.error("Error processing request", e);
-            }
-        }
-        LOGGER.info("Worker stopped.");
+    public static void setLogLevel(Level level) {
+        org.apache.logging.log4j.core.config.Configurator.setLevel(RequestManager.class, level);
+        LogManager.getLogger(LogManager.class).info("Log level set to {}", level);
     }
 
     /**
-     * Enqueues an HTTP GET request to be processed asynchronously.
-     * @param endpoint the API endpoint to send the request to
-     * @param query the path parameters to replace in the endpoint URL
-     * @param parameter the query parameters to append to the URL
-     * @param type the class type of the expected response data
-     * @return a CompletableFuture that will be completed with the response
-     * @param <T> the type of the response data
+     * Sets the usage limit for requests.
+     * The usage limit must be a non-negative value.
+     *
+     * @param minimum The minimum number of requests allowed to be left.
+     * @throws IllegalArgumentException if the minimum is negative.
+     */
+    public void setUsageLimit(long minimum) {
+        if (minimum < 0) {
+            throw new IllegalArgumentException("Usage limit must be non-negative");
+        }
+        this.usageLimit = minimum;
+    }
+
+    /**
+     * Enqueues an HTTP request to the specified endpoint with given query parameters and request parameters.
+     *
+     * @param endpoint  The API endpoint to send the request to.
+     * @param query     A map of query parameters to be included in the URL.
+     * @param parameter A map of request parameters to be included in the URL.
+     * @param type      The class type of the expected response data.
+     * @param <T>       The type of the response data.
+     * @return A CompletableFuture that will complete with the response data.
      */
     public <T> CompletableFuture<Response<T>> enqueueRequest(Endpoint endpoint, Map<String, String> query, Map<String, String> parameter, Class<T> type) {
-        CompletableFuture<Response<T>> future = new CompletableFuture<>();
-        requestQueue.add(() -> {
-            String url = buildUrl(endpoint, query, parameter);
-            Response<T> response = get(url, type);
-            future.complete(response);
-            return null;
-        });
-        return future;
+        return enqueueRequest(endpoint, query, parameter, type, TokenStore.getInstance().getToken());
     }
 
     /**
-     * Enqueues an HTTP GET request to be processed asynchronously with a specific token.
-     * @param endpoint the API endpoint to send the request to
-     * @param query the path parameters to replace in the endpoint URL
-     * @param parameter the query parameters to append to the URL
-     * @param type the class type of the expected response data
-     * @param token the authentication token to use for the request
-     * @return a CompletableFuture that will be completed with the response
-     * @param <T> the type of the response data
+     * Enqueues an HTTP request to the specified endpoint with given query parameters, request parameters, and an authorization token.
+     *
+     * @param endpoint  The API endpoint to send the request to.
+     * @param query     A map of query parameters to be included in the URL.
+     * @param parameter A map of request parameters to be included in the URL.
+     * @param type      The class type of the expected response data.
+     * @param token     The authorization token to be included in the request headers.
+     * @param <T>       The type of the response data.
+     * @return A CompletableFuture that will complete with the response data.
      */
     public <T> CompletableFuture<Response<T>> enqueueRequest(Endpoint endpoint, Map<String, String> query, Map<String, String> parameter, Class<T> type, String token) {
+        if (token == null) {
+            return new CompletableFuture<>() {{
+                complete(new Response<>(ResponseCode.UNAUTHORIZED, null, "No valid token available"));
+            }};
+        }
+
+        String url = buildUrl(endpoint, query, parameter);
+        return sendRequest(url, type, token);
+    }
+
+    /**
+     * Sends an HTTP request asynchronously and processes the response.
+     * Handles rate-limiting and schedules retries if necessary.
+     *
+     * @param url   The URL to send the request to.
+     * @param type  The class type of the expected response data.
+     * @param token The authorization token to be included in the request headers.
+     * @param <T>   The type of the response data.
+     * @return A CompletableFuture that will complete with the response data.
+     */
+    private <T> CompletableFuture<Response<T>> sendRequest(String url, Class<T> type, String token) {
+        if (shuttingDown) {
+            return CompletableFuture.completedFuture(
+                    new Response<>(ResponseCode.BAD_REQUEST, null, "Application shutting down")
+            );
+        }
+
         CompletableFuture<Response<T>> future = new CompletableFuture<>();
-        requestQueue.add(() -> {
-            String url = buildUrl(endpoint, query, parameter);
-            Response<T> response = get(url, type, token);
-            future.complete(response);
-            return null;
-        });
+        pendingRequests.add(future);
+
+        HttpRequest request = buildRequest(url, token);
+
+        client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenCompose(response -> {
+                    if (shuttingDown) {
+                        return CompletableFuture.failedFuture(
+                                new CancellationException("Application shutting down")
+                        );
+                    }
+                    return handleResponse(response, url, type, token);
+                })
+                .whenComplete((result, ex) -> {
+                    pendingRequests.remove(future);
+                    if (ex != null) future.completeExceptionally(ex);
+                    else future.complete(result);
+                });
+
         return future;
     }
 
     /**
-     * Builds the full URL for the API request by replacing path parameters and appending query parameters.
+     * Builds an HTTP GET request with the specified URL and authorization token.
      *
-     * @param endpoint  the API endpoint containing the path
-     * @param query     a map of path parameters to replace in the endpoint path
-     * @param parameter a map of query parameters to append to the URL
-     * @return the constructed full URL as a string
+     * @param url   The URL to send the request to.
+     * @param token The authorization token to be included in the request headers.
+     * @return The constructed HttpRequest object.
+     */
+    private HttpRequest buildRequest(String url, String token) {
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .setHeader("Accept", "application/json")
+                .setHeader("User-Agent", getUserAgent())
+                .setHeader("Authorization", "Bearer " + token)
+                .GET();
+
+        return builder.build();
+    }
+
+    /**
+     * Handles the HTTP response, processes rate-limiting headers, and schedules retries if necessary.
+     *
+     * @param response The HTTP response received.
+     * @param url      The URL of the request.
+     * @param type     The class type of the expected response data.
+     * @param token    The authorization token used in the request.
+     * @param <T>      The type of the response data.
+     * @return A CompletableFuture that will complete with the processed response data.
+     */
+    private <T> CompletableFuture<Response<T>> handleResponse(HttpResponse<String> response, String url, Class<T> type, String token) {
+        try {
+            String remaining = response.headers().firstValue(X_RATE_LIMIT_REMAINING).orElse("-1");
+            long reset = response.headers().firstValue(X_RATE_LIMIT_RESET).map(Long::parseLong).orElse(Instant.now().getEpochSecond() + 60);
+
+            TokenStore.getInstance().updateToken(token, Integer.parseInt(remaining), reset);
+
+            if (Long.parseLong(remaining) < usageLimit) {
+                LOGGER.warn("Usage limit of {} requests reached ({} remaining). Scheduling retry...", usageLimit, remaining);
+                return scheduleRetry(url, type, token, reset);
+            }
+
+            if (response.statusCode() == 429) {
+                LOGGER.warn("Received 429 Too Many Requests. Scheduling retry...");
+                return scheduleRetry(url, type, token, reset);
+            }
+
+            if ("0".equals(remaining)) {
+                LOGGER.warn("Rate limit reached! Scheduling retry...");
+                return scheduleRetry(url, type, token, reset);
+            }
+
+            if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                T data = mapper.readValue(response.body(), type);
+                return CompletableFuture.completedFuture(new Response<>(ResponseCode.fromCode(response.statusCode()), data, null));
+            } else {
+                return CompletableFuture.completedFuture(new Response<>(ResponseCode.fromCode(response.statusCode()), null, response.body()));
+            }
+        } catch (Exception e) {
+            return CompletableFuture.completedFuture(new Response<>(ResponseCode.BAD_REQUEST, null, e.getMessage()));
+        }
+    }
+
+    /**
+     * Schedules a retry for the HTTP request after the rate limit reset time.
+     *
+     * @param url   The URL of the request.
+     * @param type  The class type of the expected response data.
+     * @param token The authorization token used in the request.
+     * @param reset The rate limit reset time in seconds since the epoch.
+     * @param <T>   The type of the response data.
+     * @return A CompletableFuture that will complete with the response data after the retry.
+     */
+    private <T> CompletableFuture<Response<T>> scheduleRetry(String url, Class<T> type, String token, long reset) {
+        long delay = Math.max(10, reset - Instant.now().getEpochSecond() + 1);
+        LOGGER.info("Scheduling retry in {} second/s for URL: {}", delay, url);
+        CompletableFuture<Response<T>> future = new CompletableFuture<>();
+        scheduler.schedule(() -> sendRequest(url, type, token).thenAccept(future::complete), delay, TimeUnit.SECONDS);
+        return future;
+    }
+
+    /**
+     * Gets the number of requests currently pending (in-flight).
+     * Useful for monitoring and determining if it's safe to shutdown.
+     *
+     * @return The number of pending requests.
+     */
+    public int getPendingRequestCount() {
+        return pendingRequests.size();
+    }
+
+    /**
+     * Waits for all pending requests to complete with a specified timeout.
+     * Useful for graceful shutdown to ensure all in-flight requests finish before terminating.
+     *
+     * @param timeout The maximum time to wait for pending requests to complete.
+     * @param unit    The time unit of the timeout parameter.
+     * @return true if all pending requests completed within the timeout, false if timeout was exceeded.
+     * @throws InterruptedException if the waiting thread is interrupted.
+     */
+    public boolean waitForPending(long timeout, TimeUnit unit) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + unit.toMillis(timeout);
+        while (!pendingRequests.isEmpty() && System.currentTimeMillis() < deadline) {
+            Thread.sleep(100);
+        }
+        return pendingRequests.isEmpty();
+    }
+
+    /**
+     * Builds the full URL for the request by replacing placeholders and appending query parameters.
+     *
+     * @param endpoint  The API endpoint to send the request to.
+     * @param query     A map of query parameters to be included in the URL.
+     * @param parameter A map of request parameters to be included in the URL.
+     * @return The constructed URL as a string.
      */
     private String buildUrl(Endpoint endpoint, Map<String, String> query, Map<String, String> parameter) {
         String url = endpoint.getPath();
@@ -164,146 +303,13 @@ public class RequestManager {
     }
 
     /**
-     * Sends an HTTP GET request to the specified URL and processes the response.
+     * Retrieves the User-Agent string for the HTTP requests.
      *
-     * @param url  the URL to send the request to
-     * @param type the class type of the expected response data
-     * @param <T>  the type of the response data
-     * @return a Response object containing the response data or error
+     * @return The User-Agent string.
      */
-    private <T> Response<T> get(String url, Class<T> type) {
-        waitIfRateLimited();
-        try {
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .setHeader("Authorization", "Bearer " + TokenStore.getInstance().getToken())
-                    .setHeader("Accept", "application/json")
-                    .setHeader("User-Agent", Configurator.getInstance().get("APPLICATION_NAME") + "/" +
-                            Configurator.getInstance().get("APPLICATION_VERSION") + " (Contact: " +
-                            Configurator.getInstance().get("CONTACT_EMAIL") + ")")
-                    .GET()
-                    .build();
-            
-            HttpResponse<String> response =
-                    client.send(request, HttpResponse.BodyHandlers.ofString());
-
-            String remaining = response.headers().firstValue(X_RATE_LIMIT_REMAINING).orElse("0");
-            TokenStore.getInstance().updateToken(TokenStore.getInstance().getToken(), Integer.parseInt(remaining));
-            if (remaining.equals("0")) {
-                LOGGER.warn("Rate limit reached! Stall requests until reset.");
-                handleRateLimit(response);
-                return get(url, type);
-            }
-
-            if (response.statusCode() == 429) {
-                LOGGER.warn("Received 429 Too Many Requests! Stall requests until reset.");
-                handleRateLimit(response);
-                return get(url, type);
-            }
-
-            if (response.statusCode() >= 200 && response.statusCode() < 300) {
-                T data = mapper.readValue(response.body(), type);
-                return new Response<>(ResponseCode.fromCode(response.statusCode()), data, null);
-            } else {
-                return new Response<>(ResponseCode.fromCode(response.statusCode()), null, response.body());
-            }
-        } catch (Exception e) {
-            return new Response<>(ResponseCode.BAD_REQUEST, null, e.getMessage());
-        }
-    }
-
-    /**
-     * Sends an HTTP GET request to the specified URL using a specific token and processes the response.
-     *
-     * @param url   the URL to send the request to
-     * @param type  the class type of the expected response data
-     * @param token the authentication token to use for the request
-     * @param <T>   the type of the response data
-     * @return a Response object containing the response data or error
-     */
-    private <T> Response<T> get(String url, Class<T> type, String token) {
-        waitIfRateLimited();
-        try {
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .setHeader("Authorization", "Bearer " + token)
-                    .setHeader("Accept", "application/json")
-                    .setHeader("User-Agent", Configurator.getInstance().get("APPLICATION_NAME") + "/" +
-                            Configurator.getInstance().get("APPLICATION_VERSION") + " (Contact: " +
-                            Configurator.getInstance().get("CONTACT_EMAIL") + ")")
-                    .GET()
-                    .build();
-
-            HttpResponse<String> response =
-                    client.send(request, HttpResponse.BodyHandlers.ofString());
-
-            String remaining = response.headers().firstValue(X_RATE_LIMIT_REMAINING).orElse("0");
-            TokenStore.getInstance().updateToken(TokenStore.getInstance().getToken(), Integer.parseInt(remaining));
-            if (remaining.equals("0")) {
-                LOGGER.warn("Rate limit reached! Stall requests until reset.");
-                handleRateLimit(response);
-                return get(url, type);
-            }
-
-            if (response.statusCode() == 429) {
-                LOGGER.warn("Received 429 Too Many Requests! Stall requests until reset.");
-                handleRateLimit(response);
-                return get(url, type);
-            }
-
-            if (response.statusCode() >= 200 && response.statusCode() < 300) {
-                T data = mapper.readValue(response.body(), type);
-                return new Response<>(ResponseCode.fromCode(response.statusCode()), data, null);
-            } else {
-                return new Response<>(ResponseCode.fromCode(response.statusCode()), null, response.body());
-            }
-        } catch (Exception e) {
-            return new Response<>(ResponseCode.BAD_REQUEST, null, e.getMessage());
-        }
-    }
-
-    /**
-     * Handles rate-limiting by parsing the reset time from the response headers.
-     *
-     * @param response the HTTP response containing rate limit information
-     */
-    private void handleRateLimit(HttpResponse<String> response) {
-        String resetHeader = response.headers()
-                .firstValue(X_RATE_LIMIT_RESET)
-                .orElse("0");
-
-        long resetEpoch = Long.parseLong(resetHeader) + 1;
-        resetEpoch = Math.max(resetEpoch, Instant.now().getEpochSecond() + 5);
-        rateLimitReset = Instant.ofEpochSecond(resetEpoch);
-        LOGGER.info("Rate limit will reset at {}", rateLimitReset);
-    }
-
-    /**
-     * Waits until the rate limit reset time has passed before proceeding.
-     */
-    private void waitIfRateLimited() {
-        Instant now = Instant.now();
-        if (now.isBefore(rateLimitReset)) {
-            long millisToWait = rateLimitReset.toEpochMilli() - now.toEpochMilli();
-            try {
-                Thread.sleep(millisToWait);
-            } catch (InterruptedException ignored) {}
-        }
-    }
-
-    /**
-     * Stops the Requester by shutting down the worker thread and clearing the queue.
-     */
-    public void stop() {
-        running = false;
-        worker.shutdown();
-        try {
-            if (!worker.awaitTermination(5, TimeUnit.SECONDS)) {
-                worker.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            worker.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
+    private String getUserAgent() {
+        return Configurator.getInstance().get("APPLICATION_NAME") + "/" +
+                Configurator.getInstance().get("APPLICATION_VERSION") + " (Contact: " +
+                Configurator.getInstance().get("CONTACT_EMAIL") + ")";
     }
 }

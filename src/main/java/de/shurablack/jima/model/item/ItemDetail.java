@@ -56,7 +56,7 @@ public class ItemDetail extends Item {
      * The tier modifiers of the item, represented as a map of attributes to values (nullable).
      */
     @Nullable
-    private Map<String, Double> tierModifiers;
+    private Map<SecondaryStatType, Double> tierModifiers;
 
     /**
      * The list of upgrade requirements for the item (nullable).

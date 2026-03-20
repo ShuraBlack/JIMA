@@ -1,5 +1,7 @@
 package de.shurablack.jima.util.types;
 
+import java.util.stream.Stream;
+
 /**
  * Represents the quality levels of an item or entity in the system.
  * Each quality level indicates a different degree of refinement or rarity.
@@ -39,5 +41,22 @@ public enum Quality {
     /**
      * Unique quality, representing a one-of-a-kind or unparalleled level (given by the developer).
      */
-    UNIQUE
+    UNIQUE;
+
+    /**
+     * Converts a string to the corresponding Quality enum value.
+     * The string matching is case-insensitive.
+     *
+     * @param value The string representation of the quality (case-insensitive).
+     * @return The matching Quality enum value, or STANDARD if no match is found.
+     */
+    public static Quality fromString(String value) {
+        if (value == null) {
+            return STANDARD;
+        }
+        return Stream.of(values())
+                .filter(quality -> quality.name().equalsIgnoreCase(value))
+                .findFirst()
+                .orElse(STANDARD);
+    }
 }

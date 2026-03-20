@@ -3,11 +3,13 @@ package de.shurablack.jima.util;
 import de.shurablack.jima.http.Requester;
 import de.shurablack.jima.http.Response;
 import de.shurablack.jima.model.auth.Authentication;
+import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.File;
 import java.nio.file.Files;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -36,6 +38,7 @@ public class TokenStore {
         tokens = new ConcurrentSkipListSet<>(
                 Comparator.comparingInt(TokenEntry::getRemaining)
                         .reversed()
+                        .thenComparing(TokenEntry::getNextReset)
                         .thenComparing(TokenEntry::getToken)
         );
     }
@@ -63,12 +66,17 @@ public class TokenStore {
      *
      * @param token     The token to be updated.
      * @param remaining The new remaining count for the token.
+     * @param nextReset The next reset time for the token in milliseconds.
      */
-    public void updateToken(String token, int remaining) {
+    public void updateToken(String token, int remaining, long nextReset) {
+        long timestamp = Instant.now().getEpochSecond();
         for (TokenEntry entry : tokens) {
             if (entry.getToken().equals(token)) {
                 entry.setRemaining(remaining);
-                break;
+                entry.setNextReset(nextReset);
+            } else if (entry.getNextReset() <= timestamp) {
+                entry.setRemaining(20);
+                entry.setNextReset(Long.MAX_VALUE);
             }
         }
     }
@@ -82,6 +90,7 @@ public class TokenStore {
     public String getToken() {
         TokenEntry entry = tokens.pollFirst();
         if (entry != null && entry.getToken() != null) {
+            entry.setRemaining(Math.max(0, entry.getRemaining() - 1));
             tokens.add(entry);
         }
         return entry.getToken();
@@ -96,7 +105,7 @@ public class TokenStore {
     public List<Authentication> getTokenAuthentications() {
         List<Authentication> authentications = new ArrayList<>();
 
-        for (TokenEntry entry : tokens) {
+        for (TokenEntry entry : new ArrayList<>(tokens)) {
             if (entry.getToken() == null) {
                 continue;
             }
@@ -139,14 +148,42 @@ public class TokenStore {
     }
 
     /**
+     * Validates a token by checking its authentication status with the API.
+     * Useful for periodic token health checks and determining token validity.
+     *
+     * @param token The token to validate.
+     * @return true if the token is valid and authentication succeeds, false otherwise.
+     */
+    public boolean validateToken(String token) {
+        Response<Authentication> response = Requester.getAuthentication(token);
+        return response.isSuccessful();
+    }
+
+    /**
+     * Retrieves authentication statistics for a specific token.
+     * Provides information about the token's rate limits and usage.
+     *
+     * @param token The token to check.
+     * @return The Authentication object containing token information and rate limits,
+     *         or null if authentication failed.
+     */
+    public Authentication getTokenStats(String token) {
+        Response<Authentication> response = Requester.getAuthentication(token);
+        return response.isSuccessful() ? response.getData() : null;
+    }
+
+    /**
      * Represents an entry in the token store.
      * Each entry contains a token and its remaining count.
      */
+    @Getter
     private static class TokenEntry {
 
         private final String token;
 
         private int remaining;
+
+        private long nextReset;
 
         /**
          * Constructs a new TokenEntry with the specified token.
@@ -157,6 +194,7 @@ public class TokenStore {
         public TokenEntry(final String token) {
             this.token = token;
             this.remaining = 20;
+            this.nextReset = Long.MAX_VALUE;
         }
 
         /**
@@ -166,6 +204,15 @@ public class TokenStore {
          */
         public void setRemaining(int remaining) {
             this.remaining = remaining;
+        }
+
+        /**
+         * Sets the next reset time for the token.
+         *
+         * @param nextReset The next reset time in milliseconds.
+         */
+        public void setNextReset(long nextReset) {
+            this.nextReset = nextReset;
         }
 
         /**
@@ -184,6 +231,15 @@ public class TokenStore {
          */
         public int getRemaining() {
             return remaining;
+        }
+
+        /**
+         * Retrieves the next reset time for the token.
+         *
+         * @return The next reset time in milliseconds.
+         */
+        public long getNextReset() {
+            return nextReset;
         }
     }
 }

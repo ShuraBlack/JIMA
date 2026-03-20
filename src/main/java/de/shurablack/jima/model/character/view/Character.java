@@ -1,6 +1,7 @@
 package de.shurablack.jima.model.character.view;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import de.shurablack.jima.model.combat.Location;
 import de.shurablack.jima.util.Nullable;
 import de.shurablack.jima.util.types.ClassType;
 import de.shurablack.jima.util.types.OnlineStatus;
@@ -88,6 +89,11 @@ public class Character {
      * The total level of the character.
      */
     private int totalLevel;
+
+    /**
+     * The current location of the character.
+     */
+    private Location location;
 
     /**
      * The pet currently equipped by the character.

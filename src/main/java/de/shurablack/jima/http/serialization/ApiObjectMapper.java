@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.module.SimpleModule;
-import de.shurablack.jima.model.Paged;
 import de.shurablack.jima.model.auth.Authentication;
 import de.shurablack.jima.model.item.GatherLocation;
 import de.shurablack.jima.model.item.recipe.RecipeExperience;
@@ -32,6 +31,8 @@ public class ApiObjectMapper extends ObjectMapper {
         this.setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
         // Configure the mapper to ignore unknown properties during deserialization.
         this.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        // Configure the mapper to accept empty arrays as null objects.
+        this.configure(DeserializationFeature.ACCEPT_EMPTY_ARRAY_AS_NULL_OBJECT, true);
         // Register the custom module containing deserializers.
         this.registerModule(getPreparedModule());
     }
@@ -54,7 +55,6 @@ public class ApiObjectMapper extends ObjectMapper {
         // Register deserializers for complex types.
         module.addDeserializer(RecipeExperience.class, new RecipeExperienceDeserializer());
         module.addDeserializer(Authentication.class, new AuthenticationDeserializer());
-        module.addDeserializer(GatherLocation.class, new GatherLocationDeserializer());
         module.addDeserializer(PetListing.class, new PetListingDeserializer());
 
         // Register deserializers for enum types.
