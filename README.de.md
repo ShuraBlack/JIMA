@@ -239,8 +239,12 @@ Der `TokenStore` ist ein Thread-sicherer Singleton für die Verwaltung mehrerer 
 
 - **Token-Rotation**: Tokens werden nach verbleibenden Anfragen sortiert (absteigend)
 - **Rate-Limit-Tracking**: Jeder Token wird mit verbleibenden Anfragen und Reset-Zeit verwaltet
+- **In flight Umleitung:** Wenn eine Anfrage für denselben Endpoint und dieselben Parameter bereits in Bearbeitung ist, wird das bestehende `CompletableFuture` zurückgegeben, anstatt eine neue Anfrage zu stellen
 - **Thread-Sicher**: Nutzt `ConcurrentSkipListSet` für sichere Multithreading-Operationen
 - **Automatisches Laden**: Hat eine `loadTokens()` Methode zum Laden aus `jima-tokens.txt`
+
+> [!TIP]
+> Optional kann das cachen von Endpunkten mit einem endpoint_update_at mit `RequestManager.enableEndpointCaching(<recordStats:boolean>)` aktiviert werden
 
 **Beispiel: Rotierende Tokens verwenden**
 

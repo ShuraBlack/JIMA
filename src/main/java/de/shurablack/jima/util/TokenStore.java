@@ -173,6 +173,43 @@ public class TokenStore {
     }
 
     /**
+     * Gets the minimum remaining token count across all tokens in the store.
+     * Useful for determining overall system token availability.
+     *
+     * @return The minimum remaining count, or 0 if no tokens are available.
+     */
+    public int getMinRemainingTokens() {
+        return tokens.stream()
+                .mapToInt(TokenEntry::getRemaining)
+                .min()
+                .orElse(0);
+    }
+
+    /**
+     * Gets the maximum remaining token count across all tokens in the store.
+     *
+     * @return The maximum remaining count, or 0 if no tokens are available.
+     */
+    public int getMaxRemainingTokens() {
+        return tokens.stream()
+                .mapToInt(TokenEntry::getRemaining)
+                .max()
+                .orElse(0);
+    }
+
+    /**
+     * Gets the average remaining token count across all tokens in the store.
+     *
+     * @return The average remaining count, or 0 if no tokens are available.
+     */
+    public double getAverageRemainingTokens() {
+        return tokens.stream()
+                .mapToInt(TokenEntry::getRemaining)
+                .average()
+                .orElse(0.0);
+    }
+
+    /**
      * Represents an entry in the token store.
      * Each entry contains a token and its remaining count.
      */

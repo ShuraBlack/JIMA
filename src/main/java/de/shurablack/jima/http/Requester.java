@@ -1,5 +1,6 @@
 package de.shurablack.jima.http;
 
+import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import de.shurablack.jima.model.Paged;
 import de.shurablack.jima.model.auth.Authentication;
 import de.shurablack.jima.model.character.CharacterAction;
@@ -30,6 +31,8 @@ import de.shurablack.jima.util.types.MuseumCategory;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -253,11 +256,11 @@ public class Requester {
      * }
      * </pre>
      *
-     * @param types The list of ItemTypes to search for. If empty or null, returns an empty response.
+     * @param types The set of ItemTypes to search for. If empty or null, returns an empty response.
      * @return A response containing all items of the specified types across all pages.
      *         The response data includes a Paged object with pagination metadata.
      */
-    public static Response<Items> searchTypes(List<ItemType> types) {
+    public static Response<Items> searchTypes(Set<ItemType> types) {
         List<Item> items = new ArrayList<>();
 
         for (ItemType type : types) {
@@ -341,7 +344,7 @@ public class Requester {
      * <p><b>Better Alternatives:</b></p>
      * <ul>
      *   <li>Use {@link #searchType(ItemType)} to get items of a specific type</li>
-     *   <li>Use {@link #searchTypes(List)} to get items of multiple types at once</li>
+     *   <li>Use {@link #searchTypes(Set)} to get items of multiple types at once</li>
      *   <li>Use {@link #searchItems(String)} for targeted searches</li>
      * </ul>
      *
@@ -517,10 +520,10 @@ public class Requester {
      *     .forEach(item -&gt; System.out.println(item.getName() + ": " + item.getPrice()));
      * </pre>
      *
-     * @param itemIds A list of hashed item IDs to inspect.
+     * @param itemIds A set of hashed item IDs to inspect.
      * @return A list of Response objects for item inspections, in the same order as input.
      */
-    public static List<Response<ItemInspection>> getMultipleItemInspections(List<String> itemIds) {
+    public static List<Response<ItemInspection>> getMultipleItemInspections(Set<String> itemIds) {
         List<CompletableFuture<Response<ItemInspection>>> futures = itemIds.stream()
                 .map(id -> RequestManager.getInstance().enqueueRequest(
                         Endpoint.ITEM_INSPECTION,
@@ -922,10 +925,10 @@ public class Requester {
      * });
      * </pre>
      *
-     * @param characterIds A list of character IDs to fetch.
+     * @param characterIds A set of character IDs to fetch.
      * @return A list of Response objects corresponding to each character ID, in the same order as input.
      */
-    public static List<Response<CharacterView>> getMultipleCharacters(List<String> characterIds) {
+    public static List<Response<CharacterView>> getMultipleCharacters(Set<String> characterIds) {
         List<CompletableFuture<Response<CharacterView>>> futures = characterIds.stream()
                 .map(id -> RequestManager.getInstance().enqueueRequest(
                         Endpoint.CHARACTER_VIEW,
@@ -976,10 +979,10 @@ public class Requester {
      * System.out.println("Loaded " + successful.size() + " guilds");
      * </pre>
      *
-     * @param guildIds A list of guild IDs to fetch.
+     * @param guildIds A set of guild IDs to fetch.
      * @return A list of Response objects corresponding to each guild ID, in the same order as input.
      */
-    public static List<Response<GuildView>> getMultipleGuilds(List<Integer> guildIds) {
+    public static List<Response<GuildView>> getMultipleGuilds(Set<Integer> guildIds) {
         List<CompletableFuture<Response<GuildView>>> futures = guildIds.stream()
                 .map(id -> RequestManager.getInstance().enqueueRequest(
                         Endpoint.GUILD_INFORMATION,
@@ -1030,10 +1033,10 @@ public class Requester {
      * List&lt;GuildMembers&gt; successful = list.getSuccessful();
      * </pre>
      *
-     * @param guildIds A list of guild IDs to fetch members for.
+     * @param guildIds A set of guild IDs to fetch members for.
      * @return A list of Response objects for guild members, in the same order as input.
      */
-    public static List<Response<GuildMembers>> getMultipleGuildMembers(List<Integer> guildIds) {
+    public static List<Response<GuildMembers>> getMultipleGuildMembers(Set<Integer> guildIds) {
         List<CompletableFuture<Response<GuildMembers>>> futures = guildIds.stream()
                 .map(id -> RequestManager.getInstance().enqueueRequest(
                         Endpoint.GUILD_MEMBERS,
@@ -1115,6 +1118,182 @@ public class Requester {
                 null,
                 ShrineInfo.class
         ).join();
+    }
+
+    /**
+     * Executes a group of requests with controlled delays and token management.
+     * Requests are processed sequentially or in batches with automatic stalling when tokens drop below the minimum.
+     *
+     * <p><b>Features:</b></p>
+     * <ul>
+     *   <li>Sequential execution with configurable delays between requests</li>
+     *   <li>Batch-based execution - execute X requests then wait</li>
+     *   <li>Automatic stalling when token count drops below minimum threshold</li>
+     *   <li>Transparent resumption when tokens are restored</li>
+     *   <li>Non-blocking - returns futures immediately while background processing continues</li>
+     * </ul>
+     *
+     * <p><b>Example 1 - Sequential with delays using Response requests:</b></p>
+     * <pre>
+     * RequestGroup group = new RequestGroup()
+     *     .withDelay(1000)                      // 1-second delay between requests
+     *     .withMinTokensAllowed(15)             // Keep minimum 15 tokens
+     *     .addResponseRequest(() -> Requester.inspectItem("id1"))
+     *     .addResponseRequest(() -> Requester.inspectItem("id2"))
+     *     .addResponseRequest(() -> Requester.inspectItem("id3"));
+     *
+     * List&lt;CompletableFuture&lt;?&gt;&gt; futures = Requester.executeRequestGroup(group);
+     * group.awaitCompletion(5, TimeUnit.MINUTES);
+     * </pre>
+     *
+     * <p><b>Example 2 - Batch execution with Response requests:</b></p>
+     * <pre>
+     * RequestGroup group = new RequestGroup()
+     *     .withBatchSize(10)                     // Execute 10 requests at a time
+     *     .withWaitMsBetweenBatches(5000)        // Wait 5 seconds between batches
+     *     .withMinTokensAllowed(5)               // Ensure 5 tokens available before each request
+     *     .withDelay(500);                       // 500ms delay within batch
+     *
+     * for (int i = 0; i < 100; i++) {
+     *     group.addResponseRequest(() -> Requester.inspectItem("id" + i));
+     * }
+     * // Execution flow:
+     * // - Execute requests 1-10 (with 500ms delays between)
+     * // - Wait 5 seconds
+     * // - Execute requests 11-20 (with 500ms delays between)
+     * // - Wait 5 seconds
+     * // - ... and so on
+     *
+     * List&lt;CompletableFuture&lt;?&gt;&gt; futures = Requester.executeRequestGroup(group);
+     * group.awaitCompletion(10, TimeUnit.MINUTES);
+     * </pre>
+     *
+     * <p><b>Example 3 - Batch execution with token recovery stalling:</b></p>
+     * <pre>
+     * RequestGroup group = new RequestGroup()
+     *     .withBatchSize(15)                     // Execute 15 requests in each batch
+     *     .withWaitMsBetweenBatches(0)           // No explicit wait (relies on token stalling)
+     *     .withMinTokensAllowed(10);             // Stall next request if tokens &lt; 10
+     *
+     * for (int i = 0; i < 100; i++) {
+     *     group.addResponseRequest(() -> Requester.getCharacter("charId" + i));
+     * }
+     * // Execution flow:
+     * // - Execute batch 1 (requests 1-15)
+     * // - If tokens drop below 10 before batch 2, stall until tokens recover
+     * // - Resume with batch 2, and so on
+     * </pre>
+     *
+     * @param group The RequestGroup containing requests to execute
+     * @return A list of CompletableFutures for each request in the group.
+     *         Each future represents the asynchronous completion of a request.
+     *
+     * @see RequestGroup
+     * @see RequestGroup#withDelay(long)
+     * @see RequestGroup#withMinTokensAllowed(int)
+     * @see RequestGroup#withBatchSize(int)
+     * @see RequestGroup#withWaitMsBetweenBatches(long)
+     * @see RequestGroup#addResponseRequest(Supplier) 
+     * @see RequestGroup#addResponseRequests(Collection)
+     */
+    public static List<CompletableFuture<?>> executeRequestGroup(RequestGroup group) {
+        return RequestManager.getInstance().enqueueRequestGroup(group);
+    }
+
+    /**
+     * Executes a group of requests and blocks until all requests complete.
+     * This is a convenience method that combines executeRequestGroup() and awaitCompletion().
+     *
+     * <p><b>Behavior:</b></p>
+     * <ul>
+     *   <li>Submits the request group for processing</li>
+     *   <li>Blocks the calling thread until all requests complete</li>
+     *   <li>Default timeout: 10 minutes</li>
+     *   <li>Returns false if timeout is exceeded (rather than throwing)</li>
+     * </ul>
+     *
+     * <p><b>Example - Simple blocking execution:</b></p>
+     * <pre>
+     * RequestGroup group = new RequestGroup()
+     *     .withBatchSize(10)
+     *     .withWaitMsBetweenBatches(5000)
+     *     .withMinTokensAllowed(10);
+     *
+     * for (int i = 0; i < 100; i++) {
+     *     group.addResponseRequest(() -> Requester.inspectItem("id" + i));
+     * }
+     *
+     * // Blocks until all 100 requests complete (or 10 minutes pass)
+     * boolean success = Requester.executeRequestGroupBlocking(group);
+     * if (success) {
+     *     System.out.println("All requests completed!");
+     * } else {
+     *     System.err.println("Timeout: requests did not complete within 10 minutes");
+     * }
+     * </pre>
+     *
+     * @param group The RequestGroup containing requests to execute
+     * @return true if all requests completed within 10 minutes,
+     *         false if timeout was exceeded
+     *
+     * @see #executeRequestGroup(RequestGroup)
+     * @see #executeRequestGroupBlocking(RequestGroup, long, java.util.concurrent.TimeUnit)
+     */
+    public static boolean executeRequestGroupBlocking(RequestGroup group) {
+        try {
+            return executeRequestGroupBlocking(group, 10, java.util.concurrent.TimeUnit.MINUTES);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
+    /**
+     * Executes a group of requests and blocks until all requests complete or timeout is reached.
+     * This is a convenience method that combines executeRequestGroup() and awaitCompletion().
+     *
+     * <p><b>Behavior:</b></p>
+     * <ul>
+     *   <li>Submits the request group for processing</li>
+     *   <li>Blocks the calling thread until all requests complete or timeout</li>
+     *   <li>Returns immediately if all requests finish before timeout</li>
+     *   <li>Throws InterruptedException if the waiting thread is interrupted</li>
+     * </ul>
+     *
+     * <p><b>Example:</b></p>
+     * <pre>
+     * RequestGroup group = new RequestGroup()
+     *     .withBatchSize(20)
+     *     .withWaitMsBetweenBatches(2000)
+     *     .addResponseRequest(() -> Requester.getWorldBosses())
+     *     .addResponseRequest(() -> Requester.getDungeons());
+     *
+     * try {
+     *     // Wait up to 5 minutes for completion
+     *     boolean success = Requester.executeRequestGroupBlocking(group, 5, TimeUnit.MINUTES);
+     *     if (success) {
+     *         System.out.println("Request group completed successfully");
+     *     } else {
+     *         System.out.println("Request group timed out after 5 minutes");
+     *     }
+     * } catch (InterruptedException e) {
+     *     System.err.println("Execution was interrupted: " + e.getMessage());
+     * }
+     * </pre>
+     *
+     * @param group The RequestGroup containing requests to execute
+     * @param timeout The maximum time to wait for completion
+     * @param unit The time unit of the timeout parameter
+     * @return true if all requests completed within the timeout,
+     *         false if timeout was exceeded
+     * @throws InterruptedException if the waiting thread is interrupted
+     *
+     * @see #executeRequestGroup(RequestGroup)
+     * @see #executeRequestGroupBlocking(RequestGroup)
+     */
+    public static boolean executeRequestGroupBlocking(RequestGroup group, long timeout, TimeUnit unit) throws InterruptedException {
+        executeRequestGroup(group);
+        return group.awaitCompletion(timeout, unit);
     }
 
 }

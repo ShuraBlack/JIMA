@@ -38,6 +38,13 @@ public class ImageLoader {
         }
     }
 
+    /**
+     * Downloads an image from the specified URL and saves it to the specified file path.
+     * This method downloads the image at its original size without any modifications.
+     *
+     * @param path The file path where the image will be saved.
+     * @param url  The URL of the image to download (will be used as-is without modifications).
+     */
     public static void downloadImage(String path, String url) {
         try (InputStream in = new URL(url).openStream()) {
             Files.copy(in, Paths.get(path), StandardCopyOption.REPLACE_EXISTING);

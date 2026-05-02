@@ -32,6 +32,10 @@ public class Paged {
      */
     private int perPage;
 
+    /**
+     * The next page number (nullable).
+     * If there is no next page, this value is null.
+     */
     @Nullable
     @JsonProperty(required = false)
     private Integer nextPage;
@@ -41,6 +45,9 @@ public class Paged {
      */
     private int total;
 
+    /**
+     * Indicates whether there are more pages available after the current page.
+     */
     @JsonProperty(required = false)
     private boolean hasMore;
 

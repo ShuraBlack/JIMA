@@ -1,7 +1,11 @@
 package de.shurablack.jima.http;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import de.shurablack.jima.http.serialization.ApiObjectMapper;
+import de.shurablack.jima.model.EndpointUpdate;
 import de.shurablack.jima.util.Configurator;
 import de.shurablack.jima.util.TokenStore;
 import lombok.Getter;
@@ -16,9 +20,10 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.util.Map;
-import java.util.Set;
+import java.time.LocalDateTime;
+import java.util.*;
 import java.util.concurrent.*;
+import java.util.function.Supplier;
 
 /**
  * Singleton class responsible for handling HTTP requests with rate-limiting and queuing.
@@ -31,14 +36,23 @@ public class RequestManager {
 
     private volatile boolean shuttingDown = false;
     private final Set<CompletableFuture<?>> pendingRequests = ConcurrentHashMap.newKeySet();
+    private final BlockingQueue<RequestGroup> groupQueue = new LinkedBlockingQueue<>();
 
     private static final String X_RATE_LIMIT_REMAINING = "X-RateLimit-Remaining";
     private static final String X_RATE_LIMIT_RESET = "X-RateLimit-Reset";
 
     private final HttpClient client = HttpClient.newHttpClient();
+    private static Cache<String, EndpointUpdate> ENDPOINT_CACHE;
+    private static final ConcurrentHashMap<String, CompletableFuture<?>> IN_FLIGHT = new ConcurrentHashMap<>();
+
     @Getter
     private final ObjectMapper mapper = new ApiObjectMapper();
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+    private final ExecutorService groupExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "JIMA-RequestGroupProcessor");
+        t.setDaemon(true);
+        return t;
+    });
 
     private long usageLimit = 0;
 
@@ -48,10 +62,17 @@ public class RequestManager {
      */
     private RequestManager() {
         Configurator.getInstance(); // Ensure Configurator is initialized
+        
+        // Start request group processor
+        groupExecutor.execute(this::processRequestGroups);
+        
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             LOGGER.info("Shutdown detected – stopping RequestManager...");
             shuttingDown = true;
 
+            // Stop group executor
+            groupExecutor.shutdownNow();
+            
             // Scheduler stoppen
             scheduler.shutdownNow();
 
@@ -80,6 +101,58 @@ public class RequestManager {
     public static void setLogLevel(Level level) {
         org.apache.logging.log4j.core.config.Configurator.setLevel(RequestManager.class, level);
         LogManager.getLogger(LogManager.class).info("Log level set to {}", level);
+    }
+
+
+    /**
+     * Enables endpoint caching with optional statistics recording.
+     *
+     * @param recordStats If true, cache statistics (hits, misses, evictions) are recorded for monitoring.
+     */
+    public static void enableEndpointCaching(boolean recordStats) {
+         ENDPOINT_CACHE = recordStats
+                ? Caffeine.newBuilder().recordStats().build()
+                : Caffeine.newBuilder().build();
+    }
+
+    /**
+     * Retrieves cache statistics for the endpoint cache.
+     *
+     * @return The CacheStats containing hit counts, miss counts, and eviction data.
+     * @throws IllegalStateException if endpoint caching has not been enabled via {@link #enableEndpointCaching(boolean)}.
+     */
+    public static CacheStats getCacheRecords() {
+        if (ENDPOINT_CACHE == null) {
+            throw new IllegalStateException("Endpoint caching is not enabled");
+        }
+
+        return ENDPOINT_CACHE.stats();
+    }
+
+    /**
+     * Retrieves cached endpoint data if available and not expired.
+     * Returns null if caching is disabled, type is incompatible, cache miss occurs, or data is expired.
+     *
+     * @param url  The cache key (endpoint URL).
+     * @param type The expected response data type.
+     * @param <T>  The type of the cached data.
+     * @return The cached data if valid and not expired, otherwise null.
+     */
+    private <T> T getCacheData(String url, Class<T> type) {
+        if (ENDPOINT_CACHE == null) {
+            return null;
+        }
+
+        if (!EndpointUpdate.class.isAssignableFrom(type)) {
+            return null;
+        }
+
+        EndpointUpdate value = ENDPOINT_CACHE.getIfPresent(url);
+        if (value == null || value.isExpired(LocalDateTime.now())) {
+            return null;
+        }
+
+        return (T) value;
     }
 
     /**
@@ -111,45 +184,82 @@ public class RequestManager {
     }
 
     /**
-     * Enqueues an HTTP request to the specified endpoint with given query parameters, request parameters, and an authorization token.
+     * Enqueues an HTTP request for the given endpoint using a specific authorization token.
+     * <p>
+     * This overload lets callers provide an explicit token (for example when managing
+     * multiple tokens or when testing). The method validates the token, builds the
+     * request URL (replacing path placeholders and appending query parameters), checks
+     * the endpoint cache for a valid cached response, and if none is found delegates to
+     * {@link #sendRequest(String, Class, String)} to perform the actual network call.
+     * </p>
      *
      * @param endpoint  The API endpoint to send the request to.
-     * @param query     A map of query parameters to be included in the URL.
-     * @param parameter A map of request parameters to be included in the URL.
-     * @param type      The class type of the expected response data.
-     * @param token     The authorization token to be included in the request headers.
+     * @param query     Map of path parameters to replace in the endpoint path (may be null).
+     * @param parameter Map of URL query parameters to append to the request (may be null).
+     * @param type      The expected response data type used for JSON deserialization.
+     * @param token     The bearer token to use for authorization. If null, an immediate
+     *                  completed Response with {@link ResponseCode#UNAUTHORIZED} is returned.
      * @param <T>       The type of the response data.
-     * @return A CompletableFuture that will complete with the response data.
+     * @return A CompletableFuture that will complete with a {@link Response} containing
+     * the deserialized data on success or an error code/message on failure.
      */
-    public <T> CompletableFuture<Response<T>> enqueueRequest(Endpoint endpoint, Map<String, String> query, Map<String, String> parameter, Class<T> type, String token) {
+    public <T> CompletableFuture<Response<T>> enqueueRequest(
+            Endpoint endpoint,
+            Map<String, String> query,
+            Map<String, String> parameter,
+            Class<T> type,
+            String token
+    ) {
         if (token == null) {
-            return new CompletableFuture<>() {{
-                complete(new Response<>(ResponseCode.UNAUTHORIZED, null, "No valid token available"));
-            }};
+            return CompletableFuture.completedFuture(
+                    new Response<>(ResponseCode.UNAUTHORIZED, null, "No valid token available")
+            );
         }
 
         String url = buildUrl(endpoint, query, parameter);
+        T cached = getCacheData(url, type);
+        if (cached != null) {
+            return CompletableFuture.completedFuture(
+                    new Response<>(ResponseCode.SUCCESS, cached, null)
+            );
+        }
+
         return sendRequest(url, type, token);
     }
 
+
     /**
-     * Sends an HTTP request asynchronously and processes the response.
-     * Handles rate-limiting and schedules retries if necessary.
+     * Sends an HTTP request while de-duplicating concurrent calls for the same URL.
+     * If a request for the same URL is already in progress, the existing future is reused.
+     * Otherwise, the request is executed asynchronously, the response is processed,
+     * and the result is cached when applicable.
      *
-     * @param url   The URL to send the request to.
-     * @param type  The class type of the expected response data.
-     * @param token The authorization token to be included in the request headers.
-     * @param <T>   The type of the response data.
-     * @return A CompletableFuture that will complete with the response data.
+     * @param url   The request URL.
+     * @param type  The expected response type.
+     * @param token The authorization token.
+     * @param <T>   The response payload type.
+     * @return A future that completes with the processed response.
      */
     private <T> CompletableFuture<Response<T>> sendRequest(String url, Class<T> type, String token) {
+        CompletableFuture<?> inFlight = IN_FLIGHT.get(url);
+        if (inFlight != null) {
+            return (CompletableFuture<Response<T>>) inFlight;
+        }
+
+        CompletableFuture<Response<T>> future = new CompletableFuture<>();
+
+        CompletableFuture<?> existing = IN_FLIGHT.putIfAbsent(url, future);
+        if (existing != null) {
+            return (CompletableFuture<Response<T>>) existing;
+        }
+
         if (shuttingDown) {
+            IN_FLIGHT.remove(url);
             return CompletableFuture.completedFuture(
                     new Response<>(ResponseCode.BAD_REQUEST, null, "Application shutting down")
             );
         }
 
-        CompletableFuture<Response<T>> future = new CompletableFuture<>();
         pendingRequests.add(future);
 
         HttpRequest request = buildRequest(url, token);
@@ -165,12 +275,24 @@ public class RequestManager {
                 })
                 .whenComplete((result, ex) -> {
                     pendingRequests.remove(future);
-                    if (ex != null) future.completeExceptionally(ex);
-                    else future.complete(result);
+                    IN_FLIGHT.remove(url);
+
+                    if (ex != null) {
+                        future.completeExceptionally(ex);
+                    } else {
+                        future.complete(result);
+
+                        if (ENDPOINT_CACHE != null && result.isSuccessful() && result.getData() instanceof EndpointUpdate) {
+                            EndpointUpdate update = (EndpointUpdate) result.getData();
+                            ENDPOINT_CACHE.put(url, update);
+                            LOGGER.debug("Cached endpoint update for URL: {}", url);
+                        }
+                    }
                 });
 
         return future;
     }
+
 
     /**
      * Builds an HTTP GET request with the specified URL and authorization token.
@@ -312,4 +434,195 @@ public class RequestManager {
                 Configurator.getInstance().get("APPLICATION_VERSION") + " (Contact: " +
                 Configurator.getInstance().get("CONTACT_EMAIL") + ")";
     }
+
+    /**
+     * Enqueues a group of requests to be executed with controlled delays and token management.
+     * Requests are processed sequentially with automatic stalling when tokens drop below the threshold.
+     *
+     * <p><b>How It Works:</b></p>
+     * <ul>
+     *   <li>Submits the request group to the internal queue</li>
+     *   <li>Background processor handles sequential execution</li>
+     *   <li>Each request stalls if tokens drop below minimum</li>
+     *   <li>Delays are applied between requests</li>
+     * </ul>
+     *
+     * @param group The RequestGroup containing requests and configuration
+     * @return A list of CompletableFutures for each request in the group
+     */
+    public List<CompletableFuture<?>> enqueueRequestGroup(RequestGroup group) {
+        LOGGER.info("Enqueueing request group '{}' with {} requests, delay={}ms, minTokens={}",
+                group.getGroupId(), group.size(), group.getDelayMs(), group.getMinTokensAllowed());
+        
+        try {
+            groupQueue.put(group);
+        } catch (InterruptedException e) {
+            LOGGER.error("Failed to enqueue request group: {}", e.getMessage());
+            Thread.currentThread().interrupt();
+        }
+        
+        return group.getFutures();
+    }
+
+    /**
+     * Background process that handles sequential execution of request groups with stalling.
+     * Runs continuously until shutdown, monitoring token availability and applying delays.
+     */
+    private void processRequestGroups() {
+        while (!shuttingDown) {
+            try {
+                RequestGroup group = groupQueue.poll(1, TimeUnit.SECONDS);
+                if (group == null) continue;
+
+                if (group.isCancelled()) {
+                    LOGGER.warn("Skipping cancelled request group '{}'", group.getGroupId());
+                    continue;
+                }
+
+                LOGGER.debug("Processing request group '{}'", group.getGroupId());
+                processGroup(group);
+
+            } catch (InterruptedException e) {
+                if (!shuttingDown) {
+                    LOGGER.warn("RequestGroup processor interrupted: {}", e.getMessage());
+                }
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        LOGGER.info("RequestGroup processor stopped");
+    }
+
+    /**
+     * Processes a single request group sequentially with batching support and token stalling.
+     *
+     * @param group The request group to process
+     */
+    private void processGroup(RequestGroup group) {
+        List<Supplier<CompletableFuture<?>>> requests = group.getRequests();
+        int batchSize = group.getBatchSize();
+        
+        // Process requests in batches
+        for (int batchStart = 0; batchStart < requests.size(); batchStart += batchSize) {
+            if (group.isCancelled()) {
+                LOGGER.warn("Request group '{}' cancelled, stopping processing", group.getGroupId());
+                break;
+            }
+
+            int batchEnd = Math.min(batchStart + batchSize, requests.size());
+            int batchNumber = (batchStart / batchSize) + 1;
+            int totalBatches = (requests.size() + batchSize - 1) / batchSize;
+
+            LOGGER.info("Processing batch {} of {} in group '{}' (requests {}-{})",
+                    batchNumber, totalBatches, group.getGroupId(), batchStart + 1, batchEnd);
+
+            // Process each request in this batch
+            for (int i = batchStart; i < batchEnd; i++) {
+                if (group.isCancelled()) {
+                    LOGGER.warn("Request group '{}' cancelled, stopping processing", group.getGroupId());
+                    break;
+                }
+
+                // Stall until tokens are available
+                if (group.getMinTokensAllowed() > 0) {
+                    waitForTokenAvailability(group.getGroupId(), group.getMinTokensAllowed());
+                }
+
+                // Execute the request
+                try {
+                    Supplier<CompletableFuture<?>> requestSupplier = requests.get(i);
+                    CompletableFuture<?> future = requestSupplier.get();
+                    group.addFuture(future);
+
+                    LOGGER.debug("Executing request {} of {} in group '{}'",
+                            i + 1, requests.size(), group.getGroupId());
+
+                    // Wait for request to complete before applying delay
+                    future.join();
+
+                } catch (Exception e) {
+                    LOGGER.error("Error executing request {} in group '{}': {}",
+                            i + 1, group.getGroupId(), e.getMessage());
+                    if (group.isCancelled()) break;
+                }
+
+                // Apply delay between requests within a batch (except after the last one)
+                if (i < batchEnd - 1 && group.getDelayMs() > 0) {
+                    try {
+                        LOGGER.debug("Applying {}ms delay in group '{}'", group.getDelayMs(), group.getGroupId());
+                        Thread.sleep(group.getDelayMs());
+                    } catch (InterruptedException e) {
+                        LOGGER.warn("Delay interrupted in group '{}': {}", group.getGroupId(), e.getMessage());
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            }
+
+            // Apply wait between batches if this is not the last batch
+            if (batchEnd < requests.size() && group.getWaitMsBetweenBatches() > 0) {
+                try {
+                    LOGGER.info("Batch {} completed. Waiting {}ms before next batch in group '{}'",
+                            batchNumber, group.getWaitMsBetweenBatches(), group.getGroupId());
+                    Thread.sleep(group.getWaitMsBetweenBatches());
+                } catch (InterruptedException e) {
+                    LOGGER.warn("Batch wait interrupted in group '{}': {}", group.getGroupId(), e.getMessage());
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+
+        LOGGER.info("Request group '{}' processing completed", group.getGroupId());
+    }
+
+    /**
+     * Waits for token availability until the minimum threshold is met.
+     * Blocks until tokens are restored or shutdown is initiated.
+     *
+     * @param groupId The request group ID (for logging)
+     * @param minTokensRequired Minimum number of tokens required
+     */
+    private void waitForTokenAvailability(String groupId, int minTokensRequired) {
+        long startTime = System.currentTimeMillis();
+        long maxWaitMs = 60000; // Max 60 second wait
+        
+        while (!shuttingDown && (System.currentTimeMillis() - startTime) < maxWaitMs) {
+            // Try to estimate current token availability by checking TokenStore
+            int estimatedTokens = getEstimatedTokenCount();
+
+            if (estimatedTokens >= minTokensRequired) {
+                LOGGER.info("Token availability restored for group '{}' ({}>={})",
+                        groupId, estimatedTokens, minTokensRequired);
+                return;
+            }
+
+            LOGGER.warn("Stalling group '{}': tokens {} < minimum {}. Will retry in 5 seconds...",
+                    groupId, estimatedTokens, minTokensRequired);
+
+            try {
+                Thread.sleep(5000); // Check every 5 seconds
+            } catch (InterruptedException e) {
+                LOGGER.warn("Token wait interrupted for group '{}': {}", groupId, e.getMessage());
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+
+        if (System.currentTimeMillis() - startTime >= maxWaitMs) {
+            LOGGER.error("Token wait timeout for group '{}' after {}ms. Proceeding anyway.",
+                    groupId, maxWaitMs);
+        }
+    }
+
+    /**
+     * Estimates the current token count across all tokens in the TokenStore.
+     * This reflects the most conservative estimate (minimum remaining across all tokens).
+     *
+     * @return Minimum remaining tokens across all tokens in the store
+     */
+    private int getEstimatedTokenCount() {
+        return TokenStore.getInstance().getMinRemainingTokens();
+    }
+
 }

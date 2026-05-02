@@ -214,8 +214,12 @@ The `RequestManager` is a singleton that handles all HTTP communication with rat
 
 - **Rate-Limiting**: When remaining requests fall below a configured minimum, retries are automatically scheduled
 - **Asynchronous Processing**: All requests are asynchronous using `CompletableFuture`
+- **In flight redirect:** If a request for the same endpoint and parameters is already in flight, it will return the existing `CompletableFuture` instead of making a new request
 - **Error Handling**: Automatic logging and error handling with Log4j2
 - **Configurable**: Log level and usage limits can be adjusted at runtime
+
+> [!TIP]
+> You can optionally enable caching for endpoints that contain an endpoint_update_at with `RequestManager.enableEndpointCaching(<recordStats:boolean>)`
 
 **Optional Configuration:**
 
