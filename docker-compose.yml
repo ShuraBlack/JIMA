@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  nginx:
+    image: openresty/openresty:alpine
+    container_name: nginx-logger
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf:ro
+      - ./logs:/var/log/nginx

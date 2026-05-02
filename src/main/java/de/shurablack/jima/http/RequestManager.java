@@ -325,7 +325,16 @@ public class RequestManager {
     private <T> CompletableFuture<Response<T>> handleResponse(HttpResponse<String> response, String url, Class<T> type, String token) {
         try {
             String remaining = response.headers().firstValue(X_RATE_LIMIT_REMAINING).orElse("-1");
-            long reset = response.headers().firstValue(X_RATE_LIMIT_RESET).map(Long::parseLong).orElse(Instant.now().getEpochSecond() + 60);
+            long reset = response.headers().firstValue(X_RATE_LIMIT_RESET)
+                .flatMap(value -> {
+                    try {
+                        return Optional.of(Long.parseLong(value));
+                    } catch (NumberFormatException e) {
+                        return Optional.empty();
+                    }
+                })
+                .orElseGet(() -> Instant.now().getEpochSecond() + 60);
+
 
             TokenStore.getInstance().updateToken(token, Integer.parseInt(remaining), reset);
 

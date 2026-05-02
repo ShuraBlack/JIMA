@@ -14,7 +14,7 @@ public enum Endpoint {
     /**
      * The base URL for the API.
      */
-    BASE_URL("https://api.idle-mmo.com/v1", null),
+    BASE_URL("http://localhost:8080", null),
 
     /**
      * Endpoint for checking authentication status.
