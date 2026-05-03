@@ -1,5 +1,6 @@
 package de.shurablack.jima.util;
 
+import de.shurablack.jima.http.RequestManager;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -52,15 +53,7 @@ public class Configurator {
             LOGGER.info("Loading configuration from jima-config.properties file");
             props = loadPropertiesFromFile();
             if (!checkForEssentialValues(props)) {
-                LOGGER.error("Failed to load properties from jima-config.properties file");
-                props = new Properties();
-            } else if (props.containsKey("USE_ROTATING_TOKENS") && props.getProperty("USE_ROTATING_TOKENS").equalsIgnoreCase("true")) {
-                TokenStore.getInstance().loadTokens();
-            } else if (!props.containsKey("API_KEY")) {
-                LOGGER.error("jima-config.properties file is missing required properties");
-                props = new Properties();
-            } else {
-                TokenStore.getInstance().addToken(props.getProperty("API_KEY"));
+                throw new IllegalStateException("Essential properties are missing in jima-config.properties file");
             }
         } else {
             LOGGER.warn("jima-config.properties file not found");
@@ -71,20 +64,7 @@ public class Configurator {
             props.setProperty("APPLICATION_VERSION", System.getenv("APPLICATION_VERSION"));
             props.setProperty("CONTACT_EMAIL", System.getenv("CONTACT_EMAIL"));
             if (!checkForEssentialValues(props)) {
-                LOGGER.error("Environment variables are missing required properties");
-                props = new Properties();
-            }
-
-            if (props.getProperty("USE_ROTATING_TOKENS") != null && props.getProperty("USE_ROTATING_TOKENS").equalsIgnoreCase("true")) {
-                TokenStore.getInstance().loadTokens();
-            } else {
-                props.setProperty("API_KEY", System.getenv("API_KEY"));
-                if (!props.containsKey("API_KEY")) {
-                    LOGGER.error("Environment variables are missing required properties");
-                    props = new Properties();
-                } else {
-                    TokenStore.getInstance().addToken(props.getProperty("API_KEY"));
-                }
+                throw new IllegalStateException("Essential environment variables are missing");
             }
         }
 
@@ -109,6 +89,10 @@ public class Configurator {
         } catch (ClassCastException e) {
             throw new IllegalArgumentException("Property " + key + " is not of the expected type", e);
         }
+    }
+
+    public boolean has(String key) {
+        return properties.containsKey(key);
     }
 
     /**

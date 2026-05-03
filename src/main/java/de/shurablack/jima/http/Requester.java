@@ -1,6 +1,5 @@
 package de.shurablack.jima.http;
 
-import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import de.shurablack.jima.model.Paged;
 import de.shurablack.jima.model.auth.Authentication;
 import de.shurablack.jima.model.character.CharacterAction;
@@ -24,6 +23,7 @@ import de.shurablack.jima.model.item.market.MarketHistory;
 import de.shurablack.jima.model.pet.Listings;
 import de.shurablack.jima.model.shrine.ShrineInfo;
 import de.shurablack.jima.util.ItemNameMatcher;
+import de.shurablack.jima.util.Token;
 import de.shurablack.jima.util.types.ItemType;
 import de.shurablack.jima.util.types.LocationType;
 import de.shurablack.jima.util.types.MarketType;
@@ -47,15 +47,14 @@ import java.util.stream.Collectors;
  * <ul>
  *   <li>All methods are <b>blocking</b> by default (they call {@link java.util.concurrent.CompletableFuture#join()})</li>
  *   <li>Requests are managed by the singleton {@link RequestManager}, which handles HTTP communication</li>
- *   <li>Token management is handled automatically by {@link de.shurablack.jima.util.TokenStore}</li>
+ *   <li>Token management is handled automatically by {@link de.shurablack.jima.util.TokenPool}</li>
  * </ul>
  *
  * <p><b>Rate Limiting &amp; Retry Logic:</b></p>
  * <ul>
  *   <li>The library automatically detects 429 (Too Many Requests) responses</li>
  *   <li>Automatic retries are scheduled based on the {@code X-RateLimit-Reset} header</li>
- *   <li>Token rotation is supported for increased rate limits via {@link de.shurablack.jima.util.TokenStore}</li>
- *   <li>Configure usage limits with {@link RequestManager#setUsageLimit(long)}</li>
+ *   <li>Token rotation is supported for increased rate limits via {@link de.shurablack.jima.util.TokenPool}</li>
  * </ul>
  *
  * <p><b>Error Handling Pattern:</b></p>
@@ -76,7 +75,7 @@ import java.util.stream.Collectors;
  * </pre>
  *
  * @see RequestManager
- * @see de.shurablack.jima.util.TokenStore
+ * @see de.shurablack.jima.util.TokenPool
  * @see Response
  */
 public class Requester {
@@ -103,7 +102,7 @@ public class Requester {
      * @param token The authentication token.
      * @return A response containing authentication details.
      */
-    public static Response<Authentication> getAuthentication(String token) {
+    public static Response<Authentication> getAuthentication(Token token) {
         return RequestManager.getInstance().enqueueRequest(
                 Endpoint.AUTHENTICATE,
                 null,

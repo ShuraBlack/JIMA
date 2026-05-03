@@ -231,37 +231,70 @@ RequestManager.setLogLevel(Level.DEBUG);
 RequestManager.getInstance().setUsageLimit(5);
 ```
 
-### 3. TokenStore – Token-Verwaltung
+### 3. TokenPool – Token-Verwaltung
 
-Der `TokenStore` ist ein Thread-sicherer Singleton für die Verwaltung mehrerer API-Tokens. Dies ist besonders nützlich für höhere Rate Limits.
+Das `TokenPool` ist ein interner Manager zur Verwaltung mehrerer API-Tokens mit automatischem Rate-Limiting. Die Token-Verwaltung wird automatisch durch den `RequestManager` verwaltet.
 
 **Features:**
 
-- **Token-Rotation**: Tokens werden nach verbleibenden Anfragen sortiert (absteigend)
+- **Automatische Token-Rotation**: Tokens werden automatisch basierend auf verbleibenden Anfragen ausgewählt
 - **Rate-Limit-Tracking**: Jeder Token wird mit verbleibenden Anfragen und Reset-Zeit verwaltet
-- **In flight Umleitung:** Wenn eine Anfrage für denselben Endpoint und dieselben Parameter bereits in Bearbeitung ist, wird das bestehende `CompletableFuture` zurückgegeben, anstatt eine neue Anfrage zu stellen
-- **Thread-Sicher**: Nutzt `ConcurrentSkipListSet` für sichere Multithreading-Operationen
-- **Automatisches Laden**: Hat eine `loadTokens()` Methode zum Laden aus `jima-tokens.txt`
+- **Thread-Sicher**: Sichere Multithreading-Operationen mit `AtomicInteger` und synchronisierten Methoden
+- **Automatisches Reset-Tracking**: Tokens werden automatisch zurückgesetzt, wenn die Reset-Zeit erreicht ist
+- **Automatisches Laden**: Tokens werden automatisch aus `jima-tokens.txt` geladen, wenn `USE_ROTATING_TOKENS` aktiviert ist
 
-> [!TIP]
-> Optional kann das cachen von Endpunkten mit einem endpoint_update_at mit `RequestManager.enableEndpointCaching(<recordStats:boolean>)` aktiviert werden
+**Interne Komponenten:**
 
-**Beispiel: Rotierende Tokens verwenden**
+- **Token-Klasse**: Repräsentiert ein einzelnes API-Token mit seinem eigenen Rate-Limit-Kontingent
+  - Verfolgt verbleibende Anfragen und Reset-Zeit
+  - Verwaltet automatisch die Warteschlange von Anfragen, wenn das Kontingent überschritten wird
+  - Thread-sicher mit Atomic-Operationen
+  - Bietet maskierte Token-Anzeige für sicheres Logging
+
+- **TokenPool-Klasse**: Verwaltet mehrere Tokens als logischen Pool
+  - Wählt das Token mit den meisten verbleibenden Anfragen für jede Operation aus
+  - Rotiert automatisch zwischen Tokens, um den Durchsatz zu maximieren
+  - Wartet intelligent auf Token-Reset-Zeiten, wenn alle erschöpft sind
+  - Verhindert das Hinzufügen von doppelten Tokens
+
+**Konfiguration: Rotierende Tokens verwenden**
+
+Um Token-Rotation zu aktivieren, legen Sie folgende Einstellungen in `jima-config.properties` fest:
+
+```properties
+USE_ROTATING_TOKENS=true
+```
+
+Erstellen Sie dann eine `jima-tokens.txt` Datei mit je einem Token pro Zeile:
+
+```
+token1_hier
+token2_hier
+token3_hier
+```
+
+**So funktioniert es:**
+
+- Tokens werden beim Start automatisch geladen und authentifiziert
+- Der RequestManager wählt automatisch den Token mit den meisten verfügbaren Anfragen
+- Wenn alle Tokens erschöpft sind, werden Anfragen automatisch in eine Warteschlange eingereiht und erneut versucht, wenn Tokens zurückgesetzt werden
+- Keine manuelle Token-Verwaltung erforderlich
+
+Um den Token-Status zu überprüfen, können Sie den Authentifizierungs-Endpoint verwenden:
 
 ```java
-// Tokens laden (aus jima-tokens.txt)
-TokenStore.getInstance().loadTokens();
-
-// Token hinzufügen
-TokenStore.getInstance().addToken("your_api_token");
-
-// Authentifizierungen aller gespeicherten Tokens abrufen
-List<Authentication> auths = TokenStore.getInstance().getTokenAuthentications();
-auths.forEach(auth -> {
-    System.out.println("Benutzer: " + auth.getAccount().getUsername());
+var response = Requester.getAuthentication();
+if (response.isSuccessful()) {
+    Authentication auth = response.getData();
     System.out.println("Verbleibende Anfragen: " + auth.getRateLimitRemaining());
-});
+    System.out.println("Rate Limit: " + auth.getRateLimit());
+}
 ```
+
+> [!TIP]
+> - Der `ApiObjectMapper` definiert Jackson-Module und einen ObjectMapper für Serialisierung/Deserialisierung.<br>
+> - Der `ImageLoader` ist eine Convenience-Klasse zum Laden von Bildern aus URLs.<br>
+> - API-Aufrufe sind standardmäßig blockierend (`join()` auf `CompletableFuture`), können aber asynchron verwendet werden.
 
 > [!TIP]
 > - Der `ApiObjectMapper` definiert Jackson-Module und einen ObjectMapper für Serialisierung/Deserialisierung.<br>
@@ -491,7 +524,8 @@ JIMA/
 │   │   ├── item/                        # Item & Marktdaten
 │   │   └── ...                          # Zusätzliche Modelle
 │   └── util/
-│       ├── TokenStore.java              # Thread-sichere Token-Verwaltung
+│       ├── TokenPool.java               # Token-Pool-Verwaltung mit Rate-Limiting
+│       ├── Token.java                   # Einzelne Token-Verwaltung
 │       ├── PaginationHelper.java         # Abrufen von Mehrseiten-Ergebnissen
 │       ├── Configurator.java            # Config-Datei-Verarbeitung
 │       ├── ItemNameMatcher.java         # Fuzzy Item-Matching
@@ -517,7 +551,8 @@ JIMA/
 RequestManager.getInstance().setUsageLimit(10);  // Retry bei weniger als 10 verbleibenden Anfragen
 
 // Nutzen Sie rotierende Tokens für höhere Rate Limits
-TokenStore.getInstance().loadTokens();
+// Aktivieren Sie diese in jima-config.properties mit USE_ROTATING_TOKENS=true
+// und erstellen Sie jima-tokens.txt mit je einem Token pro Zeile
 ```
 
 ### Fehlerbehandlung

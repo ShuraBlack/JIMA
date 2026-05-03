@@ -231,33 +231,70 @@ RequestManager.setLogLevel(Level.DEBUG);
 RequestManager.getInstance().setUsageLimit(5);
 ```
 
-### 3. TokenStore – Token Management
+### 3. TokenPool – Token Management
 
-The `TokenStore` is a thread-safe singleton for managing multiple API tokens. This is especially useful for higher rate limits.
+The `TokenPool` is an internal manager for handling multiple API tokens with automatic rate-limiting. Token management is handled automatically by the `RequestManager`.
 
 **Features:**
 
-- **Token Rotation**: Tokens are sorted by remaining requests (descending)
+- **Automatic Token Rotation**: Tokens are automatically selected based on remaining requests
 - **Rate-Limit Tracking**: Each token is managed with remaining requests and reset time
-- **Thread-Safe**: Uses `ConcurrentSkipListSet` for safe multi-threaded operations
-- **Auto-Loading**: Has a `loadTokens()` method to load from `jima-tokens.txt`
+- **Thread-Safe**: Safe multi-threaded operations with `AtomicInteger` and synchronized methods
+- **Automatic Reset Tracking**: Tokens automatically reset when the reset time is reached
+- **Auto-Loading**: Tokens are automatically loaded from `jima-tokens.txt` when `USE_ROTATING_TOKENS` is enabled
 
-**Example: Using Rotating Tokens**
+**Internal Components:**
+
+- **Token Class**: Represents a single API token with its own rate limit quota
+  - Tracks remaining requests and reset time
+  - Automatically manages request queuing when quota is exceeded
+  - Thread-safe using atomic operations
+  - Provides masked token display for safe logging
+
+- **TokenPool Class**: Manages multiple tokens as a logical pool
+  - Selects the token with the most remaining requests for each operation
+  - Automatically rotates between tokens to maximize throughput
+  - Waits intelligently for token reset times when all are exhausted
+  - Prevents duplicate tokens from being added
+
+**Configuration: Using Rotating Tokens**
+
+To enable token rotation, set the following in `jima-config.properties`:
+
+```properties
+USE_ROTATING_TOKENS=true
+```
+
+Then create a `jima-tokens.txt` file with one token per line:
+
+```
+token1_here
+token2_here
+token3_here
+```
+
+**How It Works:**
+
+- Tokens are automatically loaded and authenticated on startup
+- The RequestManager automatically selects the token with the most remaining requests
+- If all tokens are exhausted, requests are automatically queued and retried when tokens reset
+- No manual token management is needed
+
+To check token status, you can use the authentication endpoint:
 
 ```java
-// Load tokens (from jima-tokens.txt)
-TokenStore.getInstance().loadTokens();
-
-// Add a token
-TokenStore.getInstance().addToken("your_api_token");
-
-// Get authentications of all stored tokens
-List<Authentication> auths = TokenStore.getInstance().getTokenAuthentications();
-auths.forEach(auth -> {
-    System.out.println("Username: " + auth.getAccount().getUsername());
+var response = Requester.getAuthentication();
+if (response.isSuccessful()) {
+    Authentication auth = response.getData();
     System.out.println("Remaining Requests: " + auth.getRateLimitRemaining());
-});
+    System.out.println("Rate Limit: " + auth.getRateLimit());
+}
 ```
+
+> [!TIP]
+> - The `ApiObjectMapper` defines Jackson modules and an ObjectMapper for serialization/deserialization.<br>
+> - The `ImageLoader` is a convenience class for loading images from URLs.<br>
+> - API calls are blocking by default (`join()` on `CompletableFuture`), but can be used asynchronously for better performance.
 
 > [!TIP]
 > - The `ApiObjectMapper` defines Jackson modules and an ObjectMapper for serialization/deserialization.<br>
@@ -487,7 +524,8 @@ JIMA/
 │   │   ├── item/                        # Item & market data
 │   │   └── ...                          # Additional models
 │   └── util/
-│       ├── TokenStore.java              # Thread-safe token management
+│       ├── TokenPool.java               # Token pool management with rate-limiting
+│       ├── Token.java                   # Individual token management
 │       ├── PaginationHelper.java         # Multi-page result fetching
 │       ├── Configurator.java            # Config file parsing
 │       ├── ItemNameMatcher.java         # Fuzzy item matching
@@ -513,7 +551,8 @@ JIMA/
 RequestManager.getInstance().setUsageLimit(10);  // Retry when less than 10 requests remaining
 
 // Use rotating tokens for higher rate limits
-TokenStore.getInstance().loadTokens();
+// Enable in jima-config.properties with USE_ROTATING_TOKENS=true
+// and create jima-tokens.txt with one token per line
 ```
 
 ### Error Handling

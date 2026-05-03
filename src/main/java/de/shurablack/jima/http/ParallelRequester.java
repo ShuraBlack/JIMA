@@ -19,6 +19,7 @@ import de.shurablack.jima.model.item.ItemInspection;
 import de.shurablack.jima.model.item.Items;
 import de.shurablack.jima.model.item.market.MarketHistory;
 import de.shurablack.jima.model.shrine.ShrineInfo;
+import de.shurablack.jima.util.Token;
 import de.shurablack.jima.util.types.ItemType;
 import de.shurablack.jima.util.types.LocationType;
 import de.shurablack.jima.util.types.MarketType;
@@ -56,7 +57,7 @@ public class ParallelRequester {
      * @param token The authentication token.
      * @return A response containing authentication details.
      */
-    public static CompletableFuture<Response<Authentication>> getAuthentication(String token) {
+    public static CompletableFuture<Response<Authentication>> getAuthentication(Token token) {
         return RequestManager.getInstance().enqueueRequest(
                 Endpoint.AUTHENTICATE,
                 null,
