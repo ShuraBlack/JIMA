@@ -11,7 +11,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Unit tests for the {@link Requester} class.
@@ -48,8 +48,18 @@ class RequesterTest {
         RequestManager.getInstance().getMapper().configure(
                 DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true
         );
-        // Mock Endpoint.Authenticate
+    }
 
+    @Test
+    @Disabled
+    void inspectItem_whenEggHashProvided_containsPetObject() {
+        String hashedId = "ZqEegBydNwo5NkA59J61";
+
+        Response<ItemInspection> response = Requester.inspectItem(hashedId);
+
+        assertTrue(response.isSuccessful());
+        assertNotNull(response.getData());
+        assertNotNull(response.getData().getItem().getPet());
     }
 
     @Test
