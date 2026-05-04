@@ -1,13 +1,8 @@
 package de.shurablack.jima.util;
 
-import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 
 /**
  * Manages a pool of API tokens with automatic rotation and rate-limiting.
@@ -77,13 +72,22 @@ public class TokenPool {
      * List of all tokens managed by this pool.
      * Protected by synchronized methods during modification.
      */
-    private final List<Token> tokens = new ArrayList<>();
+    private final CopyOnWriteArrayList<Token> tokens = new CopyOnWriteArrayList<>();
 
     /**
      * Scheduler for delayed retry operations when all tokens are exhausted.
      * Uses a single thread to prevent resource exhaustion and maintain ordering.
      */
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+
+    /**
+     * Limits how low the remaining should go before the token is considered as unusable
+     */
+    private int usageLimit = 0;
+
+    public TokenPool() {
+        usageLimit = Configurator.get().getOrDefault("USAGE_LIMIT", 0);
+    }
 
     /**
      * Initializes a new token in the pool with the given parameters.
@@ -211,12 +215,12 @@ public class TokenPool {
      */
     private void tryAcquire(CompletableFuture<Token> future) {
         Token best = tokens.stream()
-                .filter(s -> s.getRemaining() > 0)
+                .filter(s -> s.getRemaining() > usageLimit)
                 .max(Comparator.comparingInt(Token::getRemaining))
                 .orElse(null);
 
         if (best != null) {
-            best.acquire().thenRun(() -> future.complete(best));
+            best.acquire(usageLimit).thenRun(() -> future.complete(best));
             return;
         }
 
@@ -255,5 +259,9 @@ public class TokenPool {
                 .mapToInt(Token::getRemaining)
                 .min()
                 .orElse(0);
+    }
+
+    public void shutdown() {
+        this.scheduler.shutdownNow();
     }
 }

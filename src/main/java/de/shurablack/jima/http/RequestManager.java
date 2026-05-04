@@ -27,6 +27,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -174,12 +175,15 @@ public class RequestManager {
     /** Cache for endpoint responses with expiration tracking. Null if caching not enabled. */
     private static Cache<String, EndpointUpdate> ENDPOINT_CACHE;
 
-    /** Map tracking in-flight requests to prevent duplicate simultaneous requests for same URL. */
-    private static final ConcurrentHashMap<String, CompletableFuture<?>> IN_FLIGHT = new ConcurrentHashMap<>();
+    /** In Flight tracking **/
+    private static final AtomicInteger IN_FLIGHT = new AtomicInteger(0);
 
     /** Jackson ObjectMapper configured for API responses and authentication. */
     @Getter
     private final ObjectMapper mapper = new ApiObjectMapper();
+
+    /** Request metrics collector for tracking request counts and failures */
+    private final RequestMetric metric = new RequestMetric();
 
     /** Scheduler for delayed operations (e.g., rate limit retries). */
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
@@ -204,7 +208,8 @@ public class RequestManager {
      * </ol>
      */
     private RequestManager() {
-        Configurator.getInstance();
+        Configurator.get();
+        this.tokenPool = new TokenPool();
 
         groupExecutor.execute(this::processRequestGroups);
 
@@ -216,12 +221,10 @@ public class RequestManager {
 
             scheduler.shutdownNow();
 
-            IN_FLIGHT.forEach((url, future) -> future.completeExceptionally(new CancellationException("Application shutting down")));
-            IN_FLIGHT.clear();
+            tokenPool.shutdown();
         }));
 
-        this.tokenPool = new TokenPool();
-        bootstrap(Configurator.getInstance().has("USE_ROTATING_TOKENS") && Boolean.parseBoolean(Configurator.getInstance().get("USE_ROTATING_TOKENS")));
+        bootstrap(Configurator.get().has("USE_ROTATING_TOKENS") && Boolean.parseBoolean(Configurator.get().get("USE_ROTATING_TOKENS")));
     }
 
     /**
@@ -275,7 +278,7 @@ public class RequestManager {
                 LOGGER.error("Failed to load jima-tokens.txt file", e);
             }
         } else {
-            tokens.add(new Token(Configurator.getInstance().get("API_KEY")));
+            tokens.add(new Token(Configurator.get().get("API_KEY")));
         }
 
         LOGGER.info("Starting authentication for {} token(s)", tokens.size());
@@ -324,15 +327,15 @@ public class RequestManager {
                     token.updateFromResponse(remaining, reset);
 
                     tokenPool.initializeToken(token);
-                    LOGGER.info("Token {} authenticated successfully with rate limit: {}", token.getHiddenKey(), auth.getRateLimit());
+                    LOGGER.info("Token {} authenticated successfully with rate limit: {}", token.getMaskedKey(), auth.getRateLimit());
                 } catch (Exception e) {
-                    LOGGER.error("Error parsing authentication response for token {}: {}", token.getHiddenKey(), e.getMessage(), e);
+                    LOGGER.error("Error parsing authentication response for token {}: {}", token.getMaskedKey(), e.getMessage(), e);
                 }
             } else {
-                LOGGER.error("Failed to authenticate token {}: HTTP {} - {}", token.getHiddenKey(), response.statusCode(), response.body());
+                LOGGER.error("Failed to authenticate token {}: HTTP {} - {}", token.getMaskedKey(), response.statusCode(), response.body());
             }
         } catch (Exception e) {
-            LOGGER.error("Exception authenticating token {}: {}", token.getHiddenKey(), e.getMessage(), e);
+            LOGGER.error("Exception authenticating token {}: {}", token.getMaskedKey(), e.getMessage(), e);
         }
     }
 
@@ -389,6 +392,14 @@ public class RequestManager {
          ENDPOINT_CACHE = recordStats
                 ? Caffeine.newBuilder().recordStats().build()
                 : Caffeine.newBuilder().build();
+    }
+
+    /**
+     * Retrieve a snapshot of the current request metrics
+     * @return The unmodifiable metric snapshot
+     */
+    public RequestMetric.RequestMetricSnapshot getRequestMetricSnapshot() {
+        return metric.getSnapshot();
     }
 
     /**
@@ -547,24 +558,13 @@ public class RequestManager {
      * @throws IllegalStateException If TokenPool is not initialized
      */
     public <T> CompletableFuture<Response<T>> sendAsync(String url, Class<T> type) {
-        CompletableFuture<?> inFlight = IN_FLIGHT.get(url);
-        if (inFlight != null) {
-            return (CompletableFuture<Response<T>>) inFlight;
-        }
-
-        CompletableFuture<Response<T>> future = new CompletableFuture<>();
-
-        CompletableFuture<?> existing = IN_FLIGHT.putIfAbsent(url, future);
-        if (existing != null) {
-            return (CompletableFuture<Response<T>>) existing;
-        }
-
         if (shuttingDown) {
-            IN_FLIGHT.remove(url);
             return CompletableFuture.completedFuture(
                     new Response<>(ResponseCode.BAD_REQUEST, null, "Application shutting down")
             );
         }
+        IN_FLIGHT.incrementAndGet();
+        metric.incrementTotalRequests();
 
         if (!this.tokenPool.isInitialized()) {
             throw new IllegalStateException("TokenPool is not initialized");
@@ -576,9 +576,9 @@ public class RequestManager {
                     return client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
                             .thenApply(response -> new AbstractMap.SimpleEntry<>(token, response));
                 })
-                .thenApply(entry -> handleResponse(entry.getKey(), entry.getValue(), type))
+                .thenCompose(entry -> handleResponseAsync(entry.getKey(), entry.getValue(), type))
                 .whenComplete((response, ex) -> {
-                    IN_FLIGHT.remove(url);
+                    IN_FLIGHT.decrementAndGet();
                 });
     }
 
@@ -602,15 +602,18 @@ public class RequestManager {
      * @return CompletableFuture containing the Response
      */
     public <T> CompletableFuture<Response<T>> sendAsync(String url, Class<T> type, Token token) {
-        return CompletableFuture.supplyAsync(() -> {
-            HttpRequest request = buildRequest(url, token.getKey());
-            try {
-                HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-                return handleResponse(token, response, type);
-            } catch (Exception e) {
-                return new Response<>(ResponseCode.BAD_REQUEST, null, e.getMessage());
-            }
-        });
+        metric.incrementTotalRequests();
+
+        return token.acquire(Configurator.get().getOrDefault("USAGE_LIMIT", 0))
+                .thenCompose(v -> {
+                    HttpRequest request = buildRequest(url, token.getKey());
+                    return client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                            .thenApply(response -> new AbstractMap.SimpleEntry<>(token, response));
+                })
+                .thenCompose(entry -> handleResponseAsync(entry.getKey(), entry.getValue(), type))
+                .whenComplete((response, ex) -> {
+                    IN_FLIGHT.decrementAndGet();
+                });
     }
 
     /**
@@ -641,7 +644,7 @@ public class RequestManager {
     }
 
     /**
-     * Handles an HTTP response, updating token state and processing results.
+     * Handles an HTTP response asynchronously, updating token state and processing results.
      *
      * <p><b>Processing:</b></p>
      * <ol>
@@ -649,12 +652,17 @@ public class RequestManager {
      *   <li>Update token with rate limit reset time</li>
      *   <li>Check response status code:
      *       <ul>
-     *           <li>HTTP 429: Schedule retry after reset</li>
+     *           <li>HTTP 429: Schedule retry asynchronously without blocking</li>
      *           <li>HTTP 2xx: Deserialize and cache result</li>
      *           <li>HTTP error: Return error response</li>
      *       </ul>
      *   </li>
      * </ol>
+     *
+     * <p><b>Thread Safety:</b></p>
+     * This method is fully asynchronous and does not block any threads. Retries are
+     * scheduled as separate CompletableFutures that integrate into the async chain.
+     * This prevents thread starvation under sustained rate limiting (429 responses).
      *
      * <p><b>Rate Limit Header Parsing:</b></p>
      * Expects headers:
@@ -667,30 +675,41 @@ public class RequestManager {
      * @param token The Token used for this request
      * @param response The HTTP response from the server
      * @param type The response class for deserialization
-     * @return Response object with data or error
+     * @return CompletableFuture completing with Response object with data or error
      */
-    private <T> Response<T> handleResponse(Token token, HttpResponse<String> response, Class<T> type) {
+    private <T> CompletableFuture<Response<T>> handleResponseAsync(Token token, HttpResponse<String> response, Class<T> type) {
         try {
             int remaining = response.headers().firstValue(X_RATE_LIMIT_REMAINING).flatMap(v -> safeParseHeader(v, Integer.class)).orElse(-1);
             long reset = response.headers().firstValue(X_RATE_LIMIT_RESET).flatMap(v -> safeParseHeader(v, Long.class)).orElse(Instant.now().getEpochSecond() + 60);
 
+            // remaining gets currently ignored and the tokens get managed by just the reset time and max token count
             token.updateFromResponse(reset);
 
             if (response.statusCode() == 429) {
-                LOGGER.warn("Rate limit hit for token {}. Remaining: {}, Reset at: {}. Scheduling retry.",
-                        token.getHiddenKey(), remaining, Instant.ofEpochSecond(reset));
-                return scheduleRetry(response.uri().toString(), type, reset).join();
+                LOGGER.warn("Rate limit hit for token {}. Remaining: {}, Reset at: {}. Scheduling retry asynchronously.",
+                        token.getMaskedKey(), remaining, Instant.ofEpochSecond(reset));
+                metric.incrementRetries();
+                return scheduleRetry(response.uri().toString(), type, reset);
             }
 
             if (response.statusCode() >= 200 && response.statusCode() < 300) {
                 T data = mapper.readValue(response.body(), type);
-                return new Response<>(ResponseCode.fromCode(response.statusCode()), data, null);
+                return CompletableFuture.completedFuture(
+                    new Response<>(ResponseCode.fromCode(response.statusCode()), data, null)
+                );
             } else {
-                LOGGER.warn("Request to URL {} failed with status {}: {}", token.getKey(), response.statusCode(), response.body());
-                return new Response<>(ResponseCode.fromCode(response.statusCode()), null, response.body());
+                LOGGER.warn("Request with token {} failed at {} with status {}: {}",
+                        token.getMaskedKey(), response.uri().getPath(), response.statusCode(), response.body());
+                metric.incrementFailures();
+                return CompletableFuture.completedFuture(
+                    new Response<>(ResponseCode.fromCode(response.statusCode()), null, response.body())
+                );
             }
         } catch (Exception e) {
-            return new Response<>(ResponseCode.BAD_REQUEST, null, e.getMessage());
+            metric.incrementFailures();
+            return CompletableFuture.completedFuture(
+                new Response<>(ResponseCode.BAD_REQUEST, null, e.getMessage())
+            );
         }
     }
 
@@ -753,7 +772,7 @@ public class RequestManager {
      * @return Number of requests currently being processed
      */
     public int getPendingRequestCount() {
-        return IN_FLIGHT.size();
+        return IN_FLIGHT.get();
     }
 
     /**
@@ -856,9 +875,9 @@ public class RequestManager {
      * @return User-Agent header value
      */
     public String getUserAgent() {
-        return Configurator.getInstance().get("APPLICATION_NAME") + "/" +
-                Configurator.getInstance().get("APPLICATION_VERSION") + " (Contact: " +
-                Configurator.getInstance().get("CONTACT_EMAIL") + ")";
+        return Configurator.get().get("APPLICATION_NAME") + "/" +
+                Configurator.get().get("APPLICATION_VERSION") + " (Contact: " +
+                Configurator.get().get("CONTACT_EMAIL") + ")";
     }
 
     /**

@@ -200,11 +200,12 @@ public class Token {
      *   <li>Will be completed later when a slot becomes available after reset or throttle</li>
      * </ul>
      *
+     * @param usageLimit The minimum number of requests left per rate limit period before queuing (e.g., 0 to queue when exhausted)
      * @return A CompletableFuture that completes when a token slot is acquired
      */
-    public CompletableFuture<Void> acquire() {
+    public CompletableFuture<Void> acquire(int usageLimit) {
         CompletableFuture<Void> future = new CompletableFuture<>();
-        tryAcquire(future);
+        tryAcquire(future, usageLimit);
         return future;
     }
 
@@ -236,8 +237,9 @@ public class Token {
      * reset time and attempt to reset simultaneously.
      *
      * @param future The CompletableFuture to complete when a slot is available
+     * @param usageLimit The minimum number of requests left per rate limit period
      */
-    private void tryAcquire(CompletableFuture<Void> future) {
+    private void tryAcquire(CompletableFuture<Void> future, int usageLimit) {
         long nowSeconds = Instant.now().getEpochSecond();
 
         synchronized (updateLock) {
@@ -250,7 +252,7 @@ public class Token {
         while (true) {
             int before = remaining.get();
 
-            if (before <= 0) {
+            if (before <= usageLimit) {
                 waiters.add(future);
                 return;
             }
@@ -374,7 +376,7 @@ public class Token {
     }
 
     /**
-     * Gets a masked/hidden representation of the token key for safe logging and display.
+     * Gets a masked representation of the token key for safe logging and display.
      *
      * <p><b>Masking Algorithm:</b></p>
      * Shows only the last 10 characters of the token, with all other characters replaced by asterisks.
@@ -382,7 +384,7 @@ public class Token {
      * <p><b>Examples:</b></p>
      * <ul>
      *   <li>Input: "sk_live_1234567890abcdefghij" (28 chars)</li>
-     *   <li>Output: "********************defghij" (18 asterisks + last 10 chars)</li>
+     *   <li>Output: "*****************abcdefghij" (18 asterisks + last 10 chars)</li>
      * </ul>
      *
      * <p><b>Use Case:</b></p>
@@ -396,7 +398,10 @@ public class Token {
      *
      * @return The hidden/masked representation of the token (asterisks + last 10 characters)
      */
-    public String getHiddenKey() {
+    public String getMaskedKey() {
+        if (key.length() < 10) {
+            return "*".repeat(key.length());
+        }
         return "*".repeat(key.length() - 10) + key.substring(key.length() - 10);
     }
 

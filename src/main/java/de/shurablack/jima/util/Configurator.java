@@ -1,6 +1,5 @@
 package de.shurablack.jima.util;
 
-import de.shurablack.jima.http.RequestManager;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -31,7 +30,7 @@ public class Configurator {
      *
      * @return the singleton instance of Configurator
      */
-    public static Configurator getInstance() {
+    public static Configurator get() {
         if (INSTANCE == null) {
             INSTANCE = new Configurator();
         }
@@ -63,6 +62,7 @@ public class Configurator {
             props.setProperty("APPLICATION_NAME", System.getenv("APPLICATION_NAME"));
             props.setProperty("APPLICATION_VERSION", System.getenv("APPLICATION_VERSION"));
             props.setProperty("CONTACT_EMAIL", System.getenv("CONTACT_EMAIL"));
+            props.setProperty("USAGE_LIMIT", System.getenv("USAGE_LIMIT"));
             if (!checkForEssentialValues(props)) {
                 throw new IllegalStateException("Essential environment variables are missing");
             }
@@ -83,6 +83,26 @@ public class Configurator {
         final Object value = properties.getProperty(key);
         if (value == null) {
             throw new IllegalArgumentException("Property " + key + " not found");
+        }
+        try {
+            return (T) value;
+        } catch (ClassCastException e) {
+            throw new IllegalArgumentException("Property " + key + " is not of the expected type", e);
+        }
+    }
+
+    /**
+     * Retrieves the value of a configuration property by its key or return the provided default
+     *
+     * @param key the key of the property to retrieve
+     * @param defaultValue the default to be used as a fallback
+     * @return the value of the property or the default, if the key doesnt exist
+     * @param <T> the expected type of the property value
+     */
+    public <T> T getOrDefault(String key, T defaultValue) {
+        final Object value = properties.getProperty(key);
+        if (value == null) {
+            return defaultValue;
         }
         try {
             return (T) value;
@@ -116,7 +136,8 @@ public class Configurator {
             templateProps.setProperty("APPLICATION_NAME", "your_app_name_here");
             templateProps.setProperty("APPLICATION_VERSION", "your_app_version_here");
             templateProps.setProperty("CONTACT_EMAIL", "your_contact_email_here");
-            templateProps.setProperty("USE_ROTATING_TOKENS", "true_or_false");
+            templateProps.setProperty("USE_ROTATING_TOKENS", "false");
+            templateProps.setProperty("USAGE_LIMIT", "0");
             templateProps.store(new FileWriter("jima-config.properties"), "Template config file");
             LOGGER.info("Template config.properties file created");
         } catch (Exception e) {
