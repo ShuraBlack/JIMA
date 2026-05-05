@@ -27,7 +27,7 @@
 - [Usage](#-usage)
   - [Requester](#1-requester--main-entry-point)
   - [RequestManager](#2-requestmanager--request-management)
-  - [TokenStore](#3-tokenstore--token-management)
+  - [TokenPool](#3-tokenpool--token-management)
 - [API Reference](#-supported-api-endpoints)
 - [Project Structure](#-project-structure)
 - [Best Practices](#-best-practices)
@@ -214,9 +214,8 @@ The `RequestManager` is a singleton that handles all HTTP communication with rat
 
 - **Rate-Limiting**: When remaining requests fall below a configured minimum, retries are automatically scheduled
 - **Asynchronous Processing**: All requests are asynchronous using `CompletableFuture`
-- **In flight redirect:** If a request for the same endpoint and parameters is already in flight, it will return the existing `CompletableFuture` instead of making a new request
 - **Error Handling**: Automatic logging and error handling with Log4j2
-- **Configurable**: Log level and usage limits can be adjusted at runtime
+- **Configurable**: Log level can be adjusted at runtime
 
 > [!TIP]
 > You can optionally enable caching for endpoints that contain an endpoint_update_at with `RequestManager.enableEndpointCaching(<recordStats:boolean>)`
@@ -227,8 +226,15 @@ The `RequestManager` is a singleton that handles all HTTP communication with rat
 // Set log level
 RequestManager.setLogLevel(Level.DEBUG);
 
-// Set usage limit (retry when less than X requests remaining)
-RequestManager.getInstance().setUsageLimit(5);
+// Enable endpoint caching with statistics
+RequestManager.enableEndpointCaching(true);
+CacheStats stats = RequestManager.getCacheRecords();
+```
+
+You can also configure usage limits via the `jima-config.properties` file:
+
+```properties
+USAGE_LIMIT=5  # Optional: retry when less than 5 requests remaining
 ```
 
 ### 3. TokenPool – Token Management
@@ -547,12 +553,12 @@ JIMA/
 ### Handle Rate Limits
 
 ```java
-// Configure usage limit to save requests
-RequestManager.getInstance().setUsageLimit(10);  // Retry when less than 10 requests remaining
-
-// Use rotating tokens for higher rate limits
+// Configure rotating tokens for higher rate limits
 // Enable in jima-config.properties with USE_ROTATING_TOKENS=true
 // and create jima-tokens.txt with one token per line
+
+// Optionally configure usage limit in jima-config.properties:
+// USAGE_LIMIT=10  # Retry when less than 10 requests remaining
 ```
 
 ### Error Handling

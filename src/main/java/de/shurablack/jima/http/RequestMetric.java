@@ -10,19 +10,12 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * <p><b>Overview:</b></p>
  * RequestMetric collects and tracks statistics about HTTP requests made by the JIMA library.
- * It maintains counters for total requests, retries, and failures using atomic operations
+ * It maintains counters for in-flight, total requests, retries, and failures using atomic operations
  * to ensure thread-safe concurrent access without explicit synchronization.
- *
- * <p><b>Features:</b></p>
- * <ul>
- *   <li><b>Thread-Safe Counters:</b> Uses AtomicLong for lock-free concurrent updates</li>
- *   <li><b>Simple Increment Operations:</b> Easy-to-use methods for tracking metrics</li>
- *   <li><b>Snapshot Capability:</b> Creates immutable snapshots of current state</li>
- *   <li><b>Zero Initial State:</b> All counters start at zero</li>
- * </ul>
  *
  * <p><b>Metrics Tracked:</b></p>
  * <ul>
+ *   <li><b>In-flight: Count of currently processing requests</b></li>
  *   <li><b>Total Requests:</b> Count of all HTTP requests sent (including retries)</li>
  *   <li><b>Retries:</b> Count of requests that had to be retried (HTTP 429, timeouts, etc.)</li>
  *   <li><b>Failures:</b> Count of requests that ultimately failed after retries</li>
@@ -41,6 +34,13 @@ import java.util.concurrent.atomic.AtomicLong;
  * @see de.shurablack.jima.http.RequestManager
  */
 public class RequestMetric {
+
+    /**
+     * Number of HTTP requests currently in flight (being processed).
+     * Incremented when a request is sent and decremented when the response is received.
+     * Uses AtomicLong for thread-safe increment and decrement operations without synchronization.
+     */
+    private final AtomicLong inFlight;
 
     /**
      * Total number of HTTP requests attempted (including retries).
@@ -63,15 +63,28 @@ public class RequestMetric {
 
     /**
      * Creates a new RequestMetric instance with all counters initialized to zero.
-     *
-     * <p>This constructor initializes three AtomicLong counters for tracking
-     * total requests, retries, and failures. The metric is ready to track
-     * statistics immediately after creation.</p>
      */
     public RequestMetric() {
+        inFlight = new AtomicLong(0);
         totalRequests = new AtomicLong(0);
         retries = new AtomicLong(0);
         failures = new AtomicLong(0);
+    }
+
+    /**
+     * Increments the in-flight request counter by one.
+     *
+     * @see #getSnapshot()
+     */
+    public void incrementInFlight() {
+        inFlight.incrementAndGet();
+    }
+
+    /**
+     * Decrements the in-fight request counter by one.
+     */
+    public void decrementInFlight() {
+        inFlight.decrementAndGet();
     }
 
     /**
@@ -80,13 +93,6 @@ public class RequestMetric {
      * <p>This method is called when an HTTP request is sent to the API,
      * regardless of whether it succeeds or fails. This includes both
      * initial requests and retried requests.</p>
-     *
-     * <p><b>Thread Safety:</b></p>
-     * This operation is atomic and thread-safe. Multiple threads can safely
-     * call this method concurrently without data corruption or lost updates.
-     *
-     * <p><b>Usage:</b></p>
-     * Called by RequestManager after sending each HTTP request.
      *
      * @see #getSnapshot()
      */
@@ -105,10 +111,6 @@ public class RequestMetric {
      *   <li>Other temporary failures that warrant retry</li>
      * </ul>
      * </p>
-     *
-     * <p><b>Thread Safety:</b></p>
-     * This operation is atomic and thread-safe. Multiple threads can safely
-     * call this method concurrently.
      *
      * <p><b>Note:</b></p>
      * A retried request will also increment the totalRequests counter
@@ -134,10 +136,6 @@ public class RequestMetric {
      * </ul>
      * </p>
      *
-     * <p><b>Thread Safety:</b></p>
-     * This operation is atomic and thread-safe. Multiple threads can safely
-     * call this method concurrently.
-     *
      * <p><b>Note:</b></p>
      * A failed request won't increment retries (unless it was retried but
      * ultimately failed). failures <= totalRequests always.
@@ -153,7 +151,7 @@ public class RequestMetric {
      *
      * <p><b>Purpose:</b></p>
      * Returns a snapshot (RequestMetricSnapshot) containing the current values
-     * of all three counters at the moment this method is called. The snapshot
+     * of all counters at the moment this method is called. The snapshot
      * is immutable, providing a consistent view of metrics that won't change
      * even if other threads continue updating the counters.</p>
      *
@@ -181,7 +179,7 @@ public class RequestMetric {
      * @see RequestMetricSnapshot
      */
     public RequestMetricSnapshot getSnapshot() {
-        return new RequestMetricSnapshot(totalRequests.get(), retries.get(), failures.get());
+        return new RequestMetricSnapshot(inFlight.get(), totalRequests.get(), retries.get(), failures.get());
     }
 
     /**
@@ -199,27 +197,6 @@ public class RequestMetric {
      *   <li><b>Lightweight:</b> Contains only three long values</li>
      * </ul>
      *
-     * <p><b>Usage Patterns:</b></p>
-     * <pre>
-     * // Get and analyze metrics
-     * RequestMetric.RequestMetricSnapshot snapshot = metrics.getSnapshot();
-     *
-     * // Access individual metrics
-     * long total = snapshot.getTotalRequests();
-     * long retried = snapshot.getRetries();
-     * long failed = snapshot.getFailures();
-     *
-     * // Calculate derived metrics
-     * long successful = total - failed;
-     * double successRate = (successful / (double) total) * 100;
-     * double retryRate = (retried / (double) total) * 100;
-     *
-     * // Log for monitoring/debugging
-     * LOGGER.info("Requests - Total: {}, Successful: {}, Failed: {}, Retries: {}",
-     *     total, successful, failed, retried);
-     * </pre>
-     * </p>
-     *
      * <p><b>Derived Metrics:</b></p>
      * From a snapshot, you can calculate:
      * <ul>
@@ -231,12 +208,15 @@ public class RequestMetric {
      * </p>
      *
      * @see RequestMetric
-     * @author JIMA Contributors
-     * @version 2.1.0
      */
     @Getter
     @AllArgsConstructor
     public static class RequestMetricSnapshot {
+
+        /**
+         * Number of HTTP requests currently in flight (being processed).
+         */
+        private final long inFlight;
 
         /**
          * Total number of HTTP requests that were attempted.

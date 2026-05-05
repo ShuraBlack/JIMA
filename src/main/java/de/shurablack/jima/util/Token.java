@@ -246,6 +246,7 @@ public class Token {
             if (resetAt.get() > 0 && nowSeconds >= resetAt.get()) {
                 remaining.set(max.get());
                 resetAt.set(0);
+                drainWaiters();
             }
         }
 
@@ -432,6 +433,7 @@ public class Token {
             if (resetAt.get() > 0 && nowSeconds >= resetAt.get()) {
                 remaining.set(max.get());
                 resetAt.set(0);
+                drainWaiters();
             }
         }
 

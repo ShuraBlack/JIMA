@@ -143,8 +143,6 @@ import java.util.stream.Collectors;
  * @see Token
  * @see Response
  * @see RequestGroup
- * @author JIMA Contributors
- * @version 2.1.0
  */
 public class RequestManager {
 
@@ -174,9 +172,6 @@ public class RequestManager {
 
     /** Cache for endpoint responses with expiration tracking. Null if caching not enabled. */
     private static Cache<String, EndpointUpdate> ENDPOINT_CACHE;
-
-    /** In Flight tracking **/
-    private static final AtomicInteger IN_FLIGHT = new AtomicInteger(0);
 
     /** Jackson ObjectMapper configured for API responses and authentication. */
     @Getter
@@ -224,7 +219,7 @@ public class RequestManager {
             tokenPool.shutdown();
         }));
 
-        bootstrap(Configurator.get().has("USE_ROTATING_TOKENS") && Boolean.parseBoolean(Configurator.get().get("USE_ROTATING_TOKENS")));
+        bootstrap(Configurator.get().has("USE_ROTATING_TOKENS") && Configurator.get().getBoolean("USE_ROTATING_TOKENS", false));
     }
 
     /**
@@ -278,7 +273,7 @@ public class RequestManager {
                 LOGGER.error("Failed to load jima-tokens.txt file", e);
             }
         } else {
-            tokens.add(new Token(Configurator.get().get("API_KEY")));
+            tokens.add(new Token(Configurator.get().getString("API_KEY")));
         }
 
         LOGGER.info("Starting authentication for {} token(s)", tokens.size());
@@ -459,6 +454,31 @@ public class RequestManager {
     }
 
     /**
+     * Attempts to insert a new cached data for a URL if caching is enabled.
+     *
+     * @param url The full request URL
+     * @param data The data to be stored
+     * @param type The type of the given data
+     * @param <T> The data type
+     */
+    private <T> void saveCacheData(String url, T data, Class<T> type) {
+        if (ENDPOINT_CACHE == null) {
+            return;
+        }
+
+        if  (!EndpointUpdate.class.isAssignableFrom(type)) {
+            return;
+        }
+
+        EndpointUpdate value = ENDPOINT_CACHE.getIfPresent(url);
+        if (value != null && !value.isExpired(LocalDateTime.now())) {
+            return;
+        }
+
+        ENDPOINT_CACHE.put(url, (EndpointUpdate) data);
+    }
+
+    /**
      * Enqueues a request without specifying a particular token.
      *
      * <p>The request will automatically acquire a token from the TokenPool based on
@@ -528,14 +548,6 @@ public class RequestManager {
     /**
      * Sends an asynchronous HTTP request without specifying a token.
      *
-     * <p><b>In-Flight Deduplication:</b></p>
-     * If an identical request is already in progress:
-     * <ul>
-     *   <li>Returns the existing CompletableFuture instead of creating a new request</li>
-     *   <li>Prevents unnecessary duplicate requests to the same endpoint</li>
-     *   <li>Both callers receive the same result</li>
-     * </ul>
-     *
      * <p><b>Token Acquisition:</b></p>
      * Acquires a token from TokenPool, which:
      * <ul>
@@ -563,12 +575,12 @@ public class RequestManager {
                     new Response<>(ResponseCode.BAD_REQUEST, null, "Application shutting down")
             );
         }
-        IN_FLIGHT.incrementAndGet();
-        metric.incrementTotalRequests();
 
         if (!this.tokenPool.isInitialized()) {
             throw new IllegalStateException("TokenPool is not initialized");
         }
+        metric.incrementInFlight();
+        metric.incrementTotalRequests();
 
         return this.tokenPool.acquire()
                 .thenCompose(token -> {
@@ -578,22 +590,15 @@ public class RequestManager {
                 })
                 .thenCompose(entry -> handleResponseAsync(entry.getKey(), entry.getValue(), type))
                 .whenComplete((response, ex) -> {
-                    IN_FLIGHT.decrementAndGet();
+                    if (response.isSuccessful()) {
+                        saveCacheData(url, response.getData(), type);
+                    }
+                    metric.decrementInFlight();
                 });
     }
 
     /**
-     * Sends a synchronous HTTP request with a specific token.
-     *
-     * <p><b>Behavior:</b></p>
-     * <ul>
-     *   <li>Blocks until request completes</li>
-     *   <li>Uses provided token (does not acquire from pool)</li>
-     *   <li>Useful when a specific token must be used</li>
-     * </ul>
-     *
-     * <p><b>Error Handling:</b></p>
-     * Catches all exceptions and returns them as Response errors.
+     * Sends an asynchronous HTTP request with a specific token.
      *
      * @param <T> The response data type
      * @param url The full request URL
@@ -603,8 +608,9 @@ public class RequestManager {
      */
     public <T> CompletableFuture<Response<T>> sendAsync(String url, Class<T> type, Token token) {
         metric.incrementTotalRequests();
+        metric.incrementInFlight();
 
-        return token.acquire(Configurator.get().getOrDefault("USAGE_LIMIT", 0))
+        return token.acquire(Configurator.get().getInt("USAGE_LIMIT", 0))
                 .thenCompose(v -> {
                     HttpRequest request = buildRequest(url, token.getKey());
                     return client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
@@ -612,7 +618,10 @@ public class RequestManager {
                 })
                 .thenCompose(entry -> handleResponseAsync(entry.getKey(), entry.getValue(), type))
                 .whenComplete((response, ex) -> {
-                    IN_FLIGHT.decrementAndGet();
+                    if (response.isSuccessful()) {
+                        saveCacheData(url, response.getData(), type);
+                    }
+                    metric.decrementInFlight();
                 });
     }
 
@@ -765,63 +774,6 @@ public class RequestManager {
     }
 
     /**
-     * Gets the current number of requests in flight.
-     *
-     * <p>Useful for monitoring and diagnostics to track request concurrency.</p>
-     *
-     * @return Number of requests currently being processed
-     */
-    public int getPendingRequestCount() {
-        return IN_FLIGHT.get();
-    }
-
-    /**
-     * Waits for all pending requests to complete within a timeout.
-     *
-     * <p><b>Behavior:</b></p>
-     * <ul>
-     *   <li>Polls in-flight request count every 100ms</li>
-     *   <li>Returns true if all requests complete before timeout</li>
-     *   <li>Returns false if timeout expires with requests still pending</li>
-     * </ul>
-     *
-     * <p><b>Example:</b></p>
-     * <pre>
-     * // Wait up to 30 seconds for all pending requests
-     * boolean completed = RequestManager.getInstance()
-     *     .waitForPending(30, TimeUnit.SECONDS)
-     *     .join();
-     *
-     * if (completed) {
-     *     System.out.println("All requests completed");
-     * } else {
-     *     System.out.println("Timeout: some requests still pending");
-     * }
-     * </pre>
-     *
-     * @param timeout Maximum time to wait
-     * @param unit TimeUnit for timeout value
-     * @return CompletableFuture<Boolean> completing with true if all requests finish, false on timeout
-     */
-    public CompletableFuture<Boolean> waitForPending(long timeout, TimeUnit unit) {
-        long deadline = System.currentTimeMillis() + unit.toMillis(timeout);
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                while (System.currentTimeMillis() < deadline) {
-                    if (getPendingRequestCount() == 0) {
-                        return true;
-                    }
-                    Thread.sleep(100);
-                }
-                return false;
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return false;
-            }
-        });
-    }
-
-    /**
      * Builds a complete URL from endpoint, query parameters, and query string parameters.
      *
      * <p><b>URL Construction:</b></p>
@@ -875,9 +827,9 @@ public class RequestManager {
      * @return User-Agent header value
      */
     public String getUserAgent() {
-        return Configurator.get().get("APPLICATION_NAME") + "/" +
-                Configurator.get().get("APPLICATION_VERSION") + " (Contact: " +
-                Configurator.get().get("CONTACT_EMAIL") + ")";
+        return Configurator.get().getString("APPLICATION_NAME") + "/" +
+                Configurator.get().getString("APPLICATION_VERSION") + " (Contact: " +
+                Configurator.get().getString("CONTACT_EMAIL") + ")";
     }
 
     /**

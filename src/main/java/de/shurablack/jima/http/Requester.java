@@ -522,7 +522,7 @@ public class Requester {
      * @param itemIds A set of hashed item IDs to inspect.
      * @return A list of Response objects for item inspections, in the same order as input.
      */
-    public static List<Response<ItemInspection>> getMultipleItemInspections(Set<String> itemIds) {
+    public static ResponseList<ItemInspection> getMultipleItemInspections(Set<String> itemIds) {
         List<CompletableFuture<Response<ItemInspection>>> futures = itemIds.stream()
                 .map(id -> RequestManager.getInstance().enqueueRequest(
                         Endpoint.ITEM_INSPECTION,
@@ -532,9 +532,9 @@ public class Requester {
                 ))
                 .collect(Collectors.toList());
 
-        return futures.stream()
+        return new ResponseList<>(futures.stream()
                 .map(CompletableFuture::join)
-                .collect(Collectors.toList());
+                .collect(Collectors.toList()));
     }
 
     /**

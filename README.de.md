@@ -27,7 +27,7 @@
 - [Verwendung](#-verwendung)
   - [Requester](#1-requester--haupteinstiegspunkt)
   - [RequestManager](#2-requestmanager--anfrageverwaltung)
-  - [TokenStore](#3-tokenstore--token-verwaltung)
+  - [TokenPool](#3-tokenpool--token-verwaltung)
 - [API-Referenz](#-unterstützte-api-endpoints)
 - [Projektstruktur](#-projektstruktur)
 - [Best Practices](#-best-practices)
@@ -227,8 +227,15 @@ Der `RequestManager` ist ein Singleton, das die gesamte HTTP-Kommunikation mit R
 // Log-Level einstellen
 RequestManager.setLogLevel(Level.DEBUG);
 
-// Nutzungslimit einstellen (Retry bei weniger als X verbleibenden Requests)
-RequestManager.getInstance().setUsageLimit(5);
+// Endpoint-Caching mit Statistiken aktivieren
+RequestManager.enableEndpointCaching(true);
+CacheStats stats = RequestManager.getCacheRecords();
+```
+
+Sie können Nutzungsgrenzen auch über die `jima-config.properties` Datei konfigurieren:
+
+```properties
+USAGE_LIMIT=5  # Optional: Retry bei weniger als 5 verbleibenden Anfragen
 ```
 
 ### 3. TokenPool – Token-Verwaltung
@@ -547,12 +554,12 @@ JIMA/
 ### Rate Limits handhaben
 
 ```java
-// Nutzungslimit einstellen, um Anfragen zu sparen
-RequestManager.getInstance().setUsageLimit(10);  // Retry bei weniger als 10 verbleibenden Anfragen
-
 // Nutzen Sie rotierende Tokens für höhere Rate Limits
 // Aktivieren Sie diese in jima-config.properties mit USE_ROTATING_TOKENS=true
 // und erstellen Sie jima-tokens.txt mit je einem Token pro Zeile
+
+// Optional können Sie Nutzungsgrenzen in jima-config.properties konfigurieren:
+// USAGE_LIMIT=10  # Retry bei weniger als 10 verbleibenden Anfragen
 ```
 
 ### Fehlerbehandlung

@@ -71,16 +71,15 @@ class RequesterTest {
     @Test
     @Disabled
     void getMultipleItemInspections_whenDummyHashedIds_runWithoutRetries() {
-        int requests = 50;
+        int requests = 200;
         Set<String> ids = IntStream.range(0, requests)
                 .mapToObj(i -> "str_" + i)
                 .collect(Collectors.toSet());
 
-        List<Response<ItemInspection>> results = Requester.getMultipleItemInspections(ids);
+        ResponseList<ItemInspection> results = Requester.getMultipleItemInspections(ids);
         RequestMetric.RequestMetricSnapshot snapshot = RequestManager.getInstance().getRequestMetricSnapshot();
 
-        ResponseList<ItemInspection> list = new ResponseList<>(results);
-        assertEquals(requests, list.getTotalCount());
+        assertEquals(requests, results.getTotalCount());
         assertEquals(requests, snapshot.getTotalRequests());
         assertEquals(0, snapshot.getRetries());
     }
