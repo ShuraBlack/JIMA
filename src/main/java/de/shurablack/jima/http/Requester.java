@@ -85,6 +85,31 @@ public class Requester {
     }
 
     /**
+     * Enqueues an individual request with fully customizable parameters.
+     * <b>DANGER</b> Using this method wrongly will result in mapping errors.
+     *
+     * @param endpoint The API url of the request
+     * @param query The insertable values of the route
+     * @param parameter The appending parameters on the request url
+     * @param responseType The expected type of the API response
+     * @return A response containing response type details.
+     * @param <T> The response type
+     */
+    public static <T> Response<T> get(
+            Endpoint endpoint,
+            Map<String, String> query,
+            Map<String, String> parameter,
+            Class<T> responseType
+    ) {
+        return RequestManager.getInstance().enqueueRequest(
+                endpoint,
+                query,
+                parameter,
+                responseType
+        ).join();
+    }
+
+    /**
      * Retrieves authentication information.
      * @return A response containing authentication details.
      */
@@ -1296,3 +1321,5 @@ public class Requester {
     }
 
 }
+
+

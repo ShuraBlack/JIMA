@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import de.shurablack.jima.model.auth.Authentication;
-import de.shurablack.jima.model.item.GatherLocation;
 import de.shurablack.jima.model.item.recipe.RecipeExperience;
 import de.shurablack.jima.model.pet.PetListing;
 import de.shurablack.jima.util.types.SecondaryStatType;
@@ -33,6 +32,8 @@ public class ApiObjectMapper extends ObjectMapper {
         this.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         // Configure the mapper to accept empty arrays as null objects.
         this.configure(DeserializationFeature.ACCEPT_EMPTY_ARRAY_AS_NULL_OBJECT, true);
+        // Configure the mapper to ignore unknown inject values during deserialization.
+        this.configure(DeserializationFeature.FAIL_ON_UNKNOWN_INJECT_VALUE, false);
         // Register the custom module containing deserializers.
         this.registerModule(getPreparedModule());
     }

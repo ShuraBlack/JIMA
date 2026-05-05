@@ -499,7 +499,7 @@ public class RequestManager {
      * @param type The response class to deserialize into
      * @return CompletableFuture containing the Response when complete
      */
-    public <T> CompletableFuture<Response<T>> enqueueRequest(Endpoint endpoint, Map<String, String> query, Map<String, String> parameter, Class<T> type) {
+    protected <T> CompletableFuture<Response<T>> enqueueRequest(Endpoint endpoint, Map<String, String> query, Map<String, String> parameter, Class<T> type) {
         return enqueueRequest(endpoint, query, parameter, type, null);
     }
 
@@ -526,7 +526,7 @@ public class RequestManager {
      * @param token Specific Token to use, or null to acquire from TokenPool
      * @return CompletableFuture containing the Response when complete
      */
-    public <T> CompletableFuture<Response<T>> enqueueRequest(
+    protected <T> CompletableFuture<Response<T>> enqueueRequest(
             Endpoint endpoint,
             Map<String, String> query,
             Map<String, String> parameter,
@@ -569,7 +569,7 @@ public class RequestManager {
      * @return CompletableFuture containing the Response
      * @throws IllegalStateException If TokenPool is not initialized
      */
-    public <T> CompletableFuture<Response<T>> sendAsync(String url, Class<T> type) {
+    protected <T> CompletableFuture<Response<T>> sendAsync(String url, Class<T> type) {
         if (shuttingDown) {
             return CompletableFuture.completedFuture(
                     new Response<>(ResponseCode.BAD_REQUEST, null, "Application shutting down")
