@@ -12,8 +12,12 @@
 .idea/**/dictionaries
 .idea/**/shelf
 .idea
-jima-config.properties
+
+# Custom
+jima-settings.json
+tokens.store
 jima-tokens.txt
+jima-config.properties
 
 # AWS User-specific
 .idea/**/aws.xml

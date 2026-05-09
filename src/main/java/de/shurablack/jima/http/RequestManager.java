@@ -7,7 +7,7 @@ import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import de.shurablack.jima.http.serialization.ApiObjectMapper;
 import de.shurablack.jima.model.EndpointUpdate;
 import de.shurablack.jima.model.auth.Authentication;
-import de.shurablack.jima.util.Configurator;
+import de.shurablack.jima.util.AppSettings;
 import de.shurablack.jima.util.Token;
 import de.shurablack.jima.util.TokenPool;
 import lombok.Getter;
@@ -15,19 +15,19 @@ import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.File;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.time.Instant;
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.AbstractMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -77,19 +77,6 @@ import java.util.stream.Collectors;
  *   <li>Remove from in-flight map when complete</li>
  * </ol>
  *
- * <p><b>Token Initialization:</b></p>
- * On startup, RequestManager bootstraps tokens by:
- * <ol>
- *   <li>Reading tokens from configuration:
- *       <ul>
- *           <li>If USE_ROTATING_TOKENS=true: Load from jima-tokens.txt (one per line)</li>
- *           <li>Otherwise: Use API_KEY from jima-config.properties</li>
- *       </ul>
- *   </li>
- *   <li>Authenticating each token to get rate limit info</li>
- *   <li>Adding authenticated tokens to TokenPool</li>
- * </ol>
- *
  * <p><b>Thread Safety:</b></p>
  * This class is thread-safe:
  * <ul>
@@ -97,16 +84,6 @@ import java.util.stream.Collectors;
  *   <li>TokenPool is thread-safe internally</li>
  *   <li>ExecutorServices handle concurrent request processing</li>
  *   <li>All shared state is either immutable or protected by concurrent collections</li>
- * </ul>
- *
- * <p><b>Configuration:</b></p>
- * RequestManager reads from jima-config.properties and environment variables:
- * <ul>
- *   <li>API_KEY: Single token (if USE_ROTATING_TOKENS is false)</li>
- *   <li>USE_ROTATING_TOKENS: Enable multi-token rotation</li>
- *   <li>APPLICATION_NAME: User agent identification</li>
- *   <li>APPLICATION_VERSION: User agent identification</li>
- *   <li>CONTACT_EMAIL: User agent identification</li>
  * </ul>
  *
  * <p><b>Example Usage:</b></p>
@@ -134,9 +111,6 @@ import java.util.stream.Collectors;
  * // Check cache statistics
  * CacheStats stats = RequestManager.getCacheRecords();
  * System.out.println("Cache hit rate: " + stats.hitRate());
- *
- * // Wait for all pending requests to complete
- * manager.waitForPending(30, TimeUnit.SECONDS).join();
  * </pre>
  *
  * @see TokenPool
@@ -181,7 +155,14 @@ public class RequestManager {
     private final RequestMetric metric = new RequestMetric();
 
     /** Scheduler for delayed operations (e.g., rate limit retries). */
-    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(
+            1,
+            r -> {
+                Thread t = new Thread(r, "JIMA-Scheduler");
+                t.setDaemon(true);
+                return t;
+            }
+    );
 
     /** Executor for processing request groups asynchronously. */
     private final ExecutorService groupExecutor = Executors.newSingleThreadExecutor(r -> {
@@ -195,7 +176,7 @@ public class RequestManager {
      *
      * <p><b>Initialization Steps:</b></p>
      * <ol>
-     *   <li>Initialize Configurator to load configuration</li>
+     *   <li>Initialize AppSettings to load configuration</li>
      *   <li>Start RequestGroup processor thread</li>
      *   <li>Register shutdown hook for graceful cleanup</li>
      *   <li>Initialize TokenPool</li>
@@ -203,7 +184,7 @@ public class RequestManager {
      * </ol>
      */
     private RequestManager() {
-        Configurator.get();
+        AppSettings.createInstance();
         this.tokenPool = new TokenPool();
 
         groupExecutor.execute(this::processRequestGroups);
@@ -219,62 +200,15 @@ public class RequestManager {
             tokenPool.shutdown();
         }));
 
-        bootstrap(Configurator.get().has("USE_ROTATING_TOKENS") && Configurator.get().getBoolean("USE_ROTATING_TOKENS", false));
+        bootstrap();
     }
 
-    /**
-     * Bootstraps the RequestManager by loading and authenticating tokens.
-     *
-     * <p><b>Process:</b></p>
-     * <ol>
-     *   <li>Determine token loading mode:
-     *       <ul>
-     *           <li>If useRotating=true: Load multiple tokens from jima-tokens.txt</li>
-     *           <li>Otherwise: Use single token from API_KEY config</li>
-     *       </ul>
-     *   </li>
-     *   <li>Create Token objects for each loaded token</li>
-     *   <li>Authenticate each token to obtain rate limit information</li>
-     *   <li>Register authenticated tokens with TokenPool</li>
-     * </ol>
-     *
-     * <p><b>Error Handling:</b></p>
-     * <ul>
-     *   <li>If rotating tokens file not found: Logs error and returns</li>
-     *   <li>If file is empty: Logs error and returns</li>
-     *   <li>If authentication fails: Logs error for that token, continues with others</li>
-     * </ul>
-     *
-     * @param useRotating Whether to load multiple tokens from jima-tokens.txt (true) or single token from config (false)
-     */
-    private void bootstrap(boolean useRotating) {
-        List<Token> tokens = new ArrayList<>();
+    private void bootstrap() {
+        LOGGER.info("Loading tokens for RequestManager...");
 
-        if (useRotating) {
-            LOGGER.info("TokenPool enabled. Loading tokens from jima-tokens.txt file");
-            File file = new File("jima-tokens.txt");
-            if (!file.exists() || file.isDirectory()) {
-                LOGGER.error("jima-tokens.txt file not found");
-                return;
-            }
-
-            try {
-                List<String> rawTokens = Files.readString(file.toPath()).lines().collect(Collectors.toList());
-                if (rawTokens.isEmpty()) {
-                    LOGGER.error("jima-tokens.txt file is empty");
-                    return;
-                }
-                tokens.addAll(rawTokens.stream()
-                        .filter(line -> !line.isBlank())
-                        .map(line -> new Token(line.trim()))
-                        .collect(Collectors.toList()));
-
-            } catch (Exception e) {
-                LOGGER.error("Failed to load jima-tokens.txt file", e);
-            }
-        } else {
-            tokens.add(new Token(Configurator.get().getString("API_KEY")));
-        }
+        List<Token> tokens = AppSettings.getTokens().stream()
+                .filter(line -> !line.isBlank())
+                .map(line -> new Token(line.trim())).collect(Collectors.toList());
 
         LOGGER.info("Starting authentication for {} token(s)", tokens.size());
 
@@ -590,10 +524,9 @@ public class RequestManager {
                 })
                 .thenCompose(entry -> handleResponseAsync(entry.getKey(), entry.getValue(), type))
                 .whenComplete((response, ex) -> {
-                    if (response.isSuccessful()) {
+                    if (ex == null && response.isSuccessful()) {
                         saveCacheData(url, response.getData(), type);
                     }
-                    metric.decrementInFlight();
                 });
     }
 
@@ -610,7 +543,7 @@ public class RequestManager {
         metric.incrementTotalRequests();
         metric.incrementInFlight();
 
-        return token.acquire(Configurator.get().getInt("USAGE_LIMIT", 0))
+        return token.acquire(AppSettings.getSettings().getUsageLimit())
                 .thenCompose(v -> {
                     HttpRequest request = buildRequest(url, token.getKey());
                     return client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
@@ -618,10 +551,9 @@ public class RequestManager {
                 })
                 .thenCompose(entry -> handleResponseAsync(entry.getKey(), entry.getValue(), type))
                 .whenComplete((response, ex) -> {
-                    if (response.isSuccessful()) {
+                    if (ex == null && response.isSuccessful()) {
                         saveCacheData(url, response.getData(), type);
                     }
-                    metric.decrementInFlight();
                 });
     }
 
@@ -688,6 +620,8 @@ public class RequestManager {
      */
     private <T> CompletableFuture<Response<T>> handleResponseAsync(Token token, HttpResponse<String> response, Class<T> type) {
         try {
+            metric.decrementInFlight();
+
             int remaining = response.headers().firstValue(X_RATE_LIMIT_REMAINING).flatMap(v -> safeParseHeader(v, Integer.class)).orElse(-1);
             long reset = response.headers().firstValue(X_RATE_LIMIT_RESET).flatMap(v -> safeParseHeader(v, Long.class)).orElse(Instant.now().getEpochSecond() + 60);
 
@@ -769,7 +703,12 @@ public class RequestManager {
         long delay = Math.max(10, reset - Instant.now().getEpochSecond() + 1);
         LOGGER.info("Scheduling retry in {} second/s for URL: {}", delay, url);
         CompletableFuture<Response<T>> future = new CompletableFuture<>();
-        scheduler.schedule(() -> sendAsync(url, type).thenAccept(future::complete), delay, TimeUnit.SECONDS);
+        scheduler.schedule(() -> sendAsync(url, type).whenComplete((response, ex) -> {
+            if (ex == null && response.isSuccessful()) {
+                saveCacheData(url, response.getData(), type);
+            }
+            future.complete(response);
+        }), delay, TimeUnit.SECONDS);
         return future;
     }
 
@@ -827,9 +766,9 @@ public class RequestManager {
      * @return User-Agent header value
      */
     public String getUserAgent() {
-        return Configurator.get().getString("APPLICATION_NAME") + "/" +
-                Configurator.get().getString("APPLICATION_VERSION") + " (Contact: " +
-                Configurator.get().getString("CONTACT_EMAIL") + ")";
+        return AppSettings.getSettings().getApplicationName() + "/" +
+                AppSettings.getSettings().getApplicationVersion() + " (Contact: " +
+                AppSettings.getSettings().getContactEmail() + ")";
     }
 
     /**

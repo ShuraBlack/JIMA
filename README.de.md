@@ -50,15 +50,31 @@ dependencies {
 }
 ```
 
-**2. Erstelle `jima-config.properties`:**
-```properties
-API_KEY=dein_token_hier
-CONTACT_EMAIL=deine_email@example.com
-APPLICATION_VERSION=1.0.0
-APPLICATION_NAME=MeineApp
+**2. Erstelle `jima-settings.json`:**
+
+Erstellen Sie eine `jima-settings.json` Konfigurationsdatei:
+
+```json
+{
+  "API_KEY": "dein_token_hier",
+  "CONTACT_EMAIL": "deine_email@example.com",
+  "APPLICATION_VERSION": "1.0.0",
+  "APPLICATION_NAME": "MeineApp"
+}
 ```
 
-**3. Beginne mit JIMA:**
+**3. Erstelle `tokens.store`:**
+
+Falls erforderlich, erstellen Sie einen PKCS12 KeyStore für die Token-Verschlüsselung:
+
+```java
+// EINMALIGE EINRICHTUNG: Führen Sie dies einmalig aus, um den sicheren Token-Speicher zu erstellen
+List<String> tokens = Arrays.asList("token_1", "token_2");
+TokenUtil.createStore("meinPasswort123", tokens);
+
+// Anwendung verwendet Tokens aus: tokens.store
+// (Platzieren Sie diesen Code in einem separaten Setup-Utility, nicht in Ihrer Hauptanwendung)
+```
 ```java
 // Weltbosse abrufen
 var response = Requester.getWorldBosses();
@@ -136,24 +152,23 @@ dependencies {
 
 ### Konfiguration
 
-Erstellen Sie eine `jima-config.properties` Datei:
+Erstellen Sie eine `jima-settings.json` Datei in Ihrem Projektverzeichnis:
 
-```properties
-API_KEY=<your_token>
-CONTACT_EMAIL=<your_email>
-APPLICATION_VERSION=<app_version>
-APPLICATION_NAME=<app_name>
-USE_ROTATING_TOKENS=<true/false>
+```json
+{
+  "API_KEY": "<your_token>",
+  "CONTACT_EMAIL": "<your_email>",
+  "APPLICATION_VERSION": "<app_version>",
+  "APPLICATION_NAME": "<app_name>"
+}
 ```
 
-> [!NOTE]
-> Sie können auch Umgebungsvariablen statt einer Properties-Datei verwenden.
+> [!WARNING]
+> Halten Sie Ihre `jima-settings.json` und `tokens.store` Dateien sicher und fügen Sie sie zu `.gitignore` hinzu.
+> Sie können auch Umgebungsvariablen verwenden, um diese Werte zu setzen.
 
-> [!TIP]
-> Die Anwendung erzeugt automatisch eine Konfigurationsvorlage, falls sie nicht existiert.
-
-> [!IMPORTANT]
-> Für rotierende Tokens erstellen Sie `jima-tokens.txt` mit je einem Token pro Zeile.
+> [!WARNING]
+> Halten Sie Ihre `jima-settings.json` und `tokens.store` Dateien sicher und fügen Sie sie zu `.gitignore` hinzu.
 
 > [!CAUTION]
 > Die Verwendung von Tokens anderer Spieler erfordert eine Offenlegung gemäß [API-Richtlinien](https://web.idle-mmo.com/wiki/more/api). Es ist nicht erlaubt, mehrere Konten zu erstellen, um die Rate Limits zu verlängern.
@@ -232,12 +247,6 @@ RequestManager.enableEndpointCaching(true);
 CacheStats stats = RequestManager.getCacheRecords();
 ```
 
-Sie können Nutzungsgrenzen auch über die `jima-config.properties` Datei konfigurieren:
-
-```properties
-USAGE_LIMIT=5  # Optional: Retry bei weniger als 5 verbleibenden Anfragen
-```
-
 ### 3. TokenPool – Token-Verwaltung
 
 Das `TokenPool` ist ein interner Manager zur Verwaltung mehrerer API-Tokens mit automatischem Rate-Limiting. Die Token-Verwaltung wird automatisch durch den `RequestManager` verwaltet.
@@ -248,44 +257,6 @@ Das `TokenPool` ist ein interner Manager zur Verwaltung mehrerer API-Tokens mit 
 - **Rate-Limit-Tracking**: Jeder Token wird mit verbleibenden Anfragen und Reset-Zeit verwaltet
 - **Thread-Sicher**: Sichere Multithreading-Operationen mit `AtomicInteger` und synchronisierten Methoden
 - **Automatisches Reset-Tracking**: Tokens werden automatisch zurückgesetzt, wenn die Reset-Zeit erreicht ist
-- **Automatisches Laden**: Tokens werden automatisch aus `jima-tokens.txt` geladen, wenn `USE_ROTATING_TOKENS` aktiviert ist
-
-**Interne Komponenten:**
-
-- **Token-Klasse**: Repräsentiert ein einzelnes API-Token mit seinem eigenen Rate-Limit-Kontingent
-  - Verfolgt verbleibende Anfragen und Reset-Zeit
-  - Verwaltet automatisch die Warteschlange von Anfragen, wenn das Kontingent überschritten wird
-  - Thread-sicher mit Atomic-Operationen
-  - Bietet maskierte Token-Anzeige für sicheres Logging
-
-- **TokenPool-Klasse**: Verwaltet mehrere Tokens als logischen Pool
-  - Wählt das Token mit den meisten verbleibenden Anfragen für jede Operation aus
-  - Rotiert automatisch zwischen Tokens, um den Durchsatz zu maximieren
-  - Wartet intelligent auf Token-Reset-Zeiten, wenn alle erschöpft sind
-  - Verhindert das Hinzufügen von doppelten Tokens
-
-**Konfiguration: Rotierende Tokens verwenden**
-
-Um Token-Rotation zu aktivieren, legen Sie folgende Einstellungen in `jima-config.properties` fest:
-
-```properties
-USE_ROTATING_TOKENS=true
-```
-
-Erstellen Sie dann eine `jima-tokens.txt` Datei mit je einem Token pro Zeile:
-
-```
-token1_hier
-token2_hier
-token3_hier
-```
-
-**So funktioniert es:**
-
-- Tokens werden beim Start automatisch geladen und authentifiziert
-- Der RequestManager wählt automatisch den Token mit den meisten verfügbaren Anfragen
-- Wenn alle Tokens erschöpft sind, werden Anfragen automatisch in eine Warteschlange eingereiht und erneut versucht, wenn Tokens zurückgesetzt werden
-- Keine manuelle Token-Verwaltung erforderlich
 
 Um den Token-Status zu überprüfen, können Sie den Authentifizierungs-Endpoint verwenden:
 
@@ -297,11 +268,6 @@ if (response.isSuccessful()) {
     System.out.println("Rate Limit: " + auth.getRateLimit());
 }
 ```
-
-> [!TIP]
-> - Der `ApiObjectMapper` definiert Jackson-Module und einen ObjectMapper für Serialisierung/Deserialisierung.<br>
-> - Der `ImageLoader` ist eine Convenience-Klasse zum Laden von Bildern aus URLs.<br>
-> - API-Aufrufe sind standardmäßig blockierend (`join()` auf `CompletableFuture`), können aber asynchron verwendet werden.
 
 > [!TIP]
 > - Der `ApiObjectMapper` definiert Jackson-Module und einen ObjectMapper für Serialisierung/Deserialisierung.<br>
@@ -523,7 +489,7 @@ JIMA/
 │   │   ├── ResponseCode.java            # HTTP-Statuscodes
 │   │   └── serialization/
 │   │       └── ApiObjectMapper.java     # Jackson-Konfiguration
-│   ├── model/                           # Datenmodelle für API-Responses
+│   │   └── model/                           # Datenmodelle für API-Responses
 │   │   ├── auth/                        # Authentifizierungsmodelle
 │   │   ├── character/                   # Charakterdaten & Metriken
 │   │   ├── combat/                      # Bosse, Dungeons, Feinde
@@ -534,7 +500,8 @@ JIMA/
 │       ├── TokenPool.java               # Token-Pool-Verwaltung mit Rate-Limiting
 │       ├── Token.java                   # Einzelne Token-Verwaltung
 │       ├── PaginationHelper.java         # Abrufen von Mehrseiten-Ergebnissen
-│       ├── Configurator.java            # Config-Datei-Verarbeitung
+│       ├── AppSettings.java             # Konfigurationsverwaltung mit Einstellungen
+│       ├── TokenUtil.java               # Token-Verschlüsselung & KeyStore-Utilities
 │       ├── ItemNameMatcher.java         # Fuzzy Item-Matching
 │       └── types/                       # Enum-Typen (ItemType, ClassType, etc.)
 ├── src/test/java/de/shurablack/jima/
@@ -554,12 +521,13 @@ JIMA/
 ### Rate Limits handhaben
 
 ```java
-// Nutzen Sie rotierende Tokens für höhere Rate Limits
-// Aktivieren Sie diese in jima-config.properties mit USE_ROTATING_TOKENS=true
-// und erstellen Sie jima-tokens.txt mit je einem Token pro Zeile
+// API-Anfragen werden automatisch pro Token begrenzt
 
-// Optional können Sie Nutzungsgrenzen in jima-config.properties konfigurieren:
-// USAGE_LIMIT=10  # Retry bei weniger als 10 verbleibenden Anfragen
+var response = Requester.getAuthentication();
+if (response.isSuccessful()) {
+    Authentication auth = response.getData();
+    System.out.println("Verbleibend: " + auth.getRateLimitRemaining());
+}
 ```
 
 ### Fehlerbehandlung

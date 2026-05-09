@@ -86,7 +86,7 @@ public class TokenPool {
     private int usageLimit = 0;
 
     public TokenPool() {
-        usageLimit = Configurator.get().getInt("USAGE_LIMIT", 0);
+        usageLimit = AppSettings.getSettings().getUsageLimit();
     }
 
     /**

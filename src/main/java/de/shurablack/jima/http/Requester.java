@@ -545,7 +545,7 @@ public class Requester {
      * </pre>
      *
      * @param itemIds A set of hashed item IDs to inspect.
-     * @return A list of Response objects for item inspections, in the same order as input.
+     * @return A list of Response objects for item inspections.
      */
     public static ResponseList<ItemInspection> getMultipleItemInspections(Set<String> itemIds) {
         List<CompletableFuture<Response<ItemInspection>>> futures = itemIds.stream()

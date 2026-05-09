@@ -50,15 +50,31 @@ dependencies {
 }
 ```
 
-**2. Create `jima-config.properties`:**
-```properties
-API_KEY=your_token_here
-CONTACT_EMAIL=your_email@example.com
-APPLICATION_VERSION=1.0.0
-APPLICATION_NAME=MyApp
+**2. Create `jima-settings.json`:**
+
+Create a `jima-settings.json` configuration file:
+
+```json
+{
+  "API_KEY": "your_token_here",
+  "CONTACT_EMAIL": "your_email@example.com",
+  "APPLICATION_VERSION": "1.0.0",
+  "APPLICATION_NAME": "MyApp"
+}
 ```
 
-**3. Start using JIMA:**
+**3. Create `tokens.store`:**
+
+If needed, create a PKCS12 KeyStore for token encryption:
+
+```java
+// ONE-TIME SETUP: Run this once to create the secure token store
+List<String> tokens = Arrays.asList("token_1", "token_2");
+TokenUtil.createStore("myPassword123", tokens);
+
+// Application will use tokens from: tokens.store
+// (Place this code in a separate setup utility, not in your main app)
+```
 ```java
 // Fetch world bosses
 var response = Requester.getWorldBosses();
@@ -132,24 +148,19 @@ dependencies {
 
 ### Configuration
 
-Create a `jima-config.properties` file:
+Create a `jima-settings.json` file in your project root:
 
-```properties
-API_KEY=<your_token>
-CONTACT_EMAIL=<your_email>
-APPLICATION_VERSION=<app_version>
-APPLICATION_NAME=<app_name>
-USE_ROTATING_TOKENS=<true/false>
+```json
+{
+  "API_KEY": "<your_token>",
+  "CONTACT_EMAIL": "<your_email>",
+  "APPLICATION_VERSION": "<app_version>",
+  "APPLICATION_NAME": "<app_name>"
+}
 ```
 
-> [!NOTE]
-> You can also use environment variables instead of a properties file.
-
-> [!TIP]
-> The application auto-generates a config template if it doesn't exist.
-
-> [!IMPORTANT]
-> For rotating tokens, create `jima-tokens.txt` with one token per line.
+> [!WARNING]
+> Keep your `jima-settings.json` and `tokens.store` files secure and add them to `.gitignore`.
 
 > [!CAUTION]
 > Using other players' tokens requires disclosure per [API guidelines](https://web.idle-mmo.com/wiki/more/api). Creating multiple accounts to extend rate limits is not allowed.
@@ -231,12 +242,6 @@ RequestManager.enableEndpointCaching(true);
 CacheStats stats = RequestManager.getCacheRecords();
 ```
 
-You can also configure usage limits via the `jima-config.properties` file:
-
-```properties
-USAGE_LIMIT=5  # Optional: retry when less than 5 requests remaining
-```
-
 ### 3. TokenPool – Token Management
 
 The `TokenPool` is an internal manager for handling multiple API tokens with automatic rate-limiting. Token management is handled automatically by the `RequestManager`.
@@ -247,44 +252,6 @@ The `TokenPool` is an internal manager for handling multiple API tokens with aut
 - **Rate-Limit Tracking**: Each token is managed with remaining requests and reset time
 - **Thread-Safe**: Safe multi-threaded operations with `AtomicInteger` and synchronized methods
 - **Automatic Reset Tracking**: Tokens automatically reset when the reset time is reached
-- **Auto-Loading**: Tokens are automatically loaded from `jima-tokens.txt` when `USE_ROTATING_TOKENS` is enabled
-
-**Internal Components:**
-
-- **Token Class**: Represents a single API token with its own rate limit quota
-  - Tracks remaining requests and reset time
-  - Automatically manages request queuing when quota is exceeded
-  - Thread-safe using atomic operations
-  - Provides masked token display for safe logging
-
-- **TokenPool Class**: Manages multiple tokens as a logical pool
-  - Selects the token with the most remaining requests for each operation
-  - Automatically rotates between tokens to maximize throughput
-  - Waits intelligently for token reset times when all are exhausted
-  - Prevents duplicate tokens from being added
-
-**Configuration: Using Rotating Tokens**
-
-To enable token rotation, set the following in `jima-config.properties`:
-
-```properties
-USE_ROTATING_TOKENS=true
-```
-
-Then create a `jima-tokens.txt` file with one token per line:
-
-```
-token1_here
-token2_here
-token3_here
-```
-
-**How It Works:**
-
-- Tokens are automatically loaded and authenticated on startup
-- The RequestManager automatically selects the token with the most remaining requests
-- If all tokens are exhausted, requests are automatically queued and retried when tokens reset
-- No manual token management is needed
 
 To check token status, you can use the authentication endpoint:
 
@@ -296,11 +263,6 @@ if (response.isSuccessful()) {
     System.out.println("Rate Limit: " + auth.getRateLimit());
 }
 ```
-
-> [!TIP]
-> - The `ApiObjectMapper` defines Jackson modules and an ObjectMapper for serialization/deserialization.<br>
-> - The `ImageLoader` is a convenience class for loading images from URLs.<br>
-> - API calls are blocking by default (`join()` on `CompletableFuture`), but can be used asynchronously for better performance.
 
 > [!TIP]
 > - The `ApiObjectMapper` defines Jackson modules and an ObjectMapper for serialization/deserialization.<br>
@@ -522,7 +484,7 @@ JIMA/
 │   │   ├── ResponseCode.java            # HTTP status codes
 │   │   └── serialization/
 │   │       └── ApiObjectMapper.java     # Jackson configuration
-│   ├── model/                           # Data models for API responses
+│   │   └── model/                           # Data models for API responses
 │   │   ├── auth/                        # Authentication models
 │   │   ├── character/                   # Character data & metrics
 │   │   ├── combat/                      # Bosses, dungeons, enemies
@@ -533,7 +495,8 @@ JIMA/
 │       ├── TokenPool.java               # Token pool management with rate-limiting
 │       ├── Token.java                   # Individual token management
 │       ├── PaginationHelper.java         # Multi-page result fetching
-│       ├── Configurator.java            # Config file parsing
+│       ├── AppSettings.java             # Configuration management with settings
+│       ├── TokenUtil.java               # Token encryption & KeyStore utilities
 │       ├── ItemNameMatcher.java         # Fuzzy item matching
 │       └── types/                       # Enum types (ItemType, ClassType, etc.)
 ├── src/test/java/de/shurablack/jima/
@@ -553,12 +516,13 @@ JIMA/
 ### Handle Rate Limits
 
 ```java
-// Configure rotating tokens for higher rate limits
-// Enable in jima-config.properties with USE_ROTATING_TOKENS=true
-// and create jima-tokens.txt with one token per line
+// API requests are automatically rate-limited per token
 
-// Optionally configure usage limit in jima-config.properties:
-// USAGE_LIMIT=10  # Retry when less than 10 requests remaining
+var response = Requester.getAuthentication();
+if (response.isSuccessful()) {
+    Authentication auth = response.getData();
+    System.out.println("Remaining: " + auth.getRateLimitRemaining());
+}
 ```
 
 ### Error Handling
