@@ -10,6 +10,7 @@ import de.shurablack.jima.model.pet.PetListing;
 import de.shurablack.jima.util.types.SecondaryStatType;
 import de.shurablack.jima.util.types.SkillType;
 import de.shurablack.jima.util.types.StatType;
+import de.shurablack.jima.util.types.WeatherType;
 
 import java.awt.*;
 import java.time.LocalDateTime;
@@ -61,6 +62,7 @@ public class ApiObjectMapper extends ObjectMapper {
         // Register deserializers for enum types.
         module.addDeserializer(SkillType.class, new SkillTypeDeserializer());
         module.addDeserializer(StatType.class, new StatTypeDeserializer());
+        module.addDeserializer(WeatherType.class, new WeatherTypeDeserializer());
         module.addDeserializer(SecondaryStatType.class, new SecondaryStatTypeDeserializer());
 
         // Return the configured module.

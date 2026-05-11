@@ -22,6 +22,11 @@ public enum Endpoint {
     AUTHENTICATE(BASE_URL.path + "/auth/check", "v1.auth.check"),
 
     /**
+     * Endpoint for world locations/nodes on the map.
+     */
+    WORLD_LOCATIONS_LIST(BASE_URL.path + "/world/locations/list", "v1.world.locations.list"),
+
+    /**
      * Endpoint for retrieving the list of world bosses.
      */
     WORLD_BOSSES(BASE_URL.path + "/combat/world_bosses/list", "v1.combat.world_bosses.list"),

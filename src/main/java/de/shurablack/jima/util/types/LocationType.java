@@ -60,7 +60,9 @@ public enum LocationType {
     /**
      * Represents the location type for The Citadel.
      */
-    THE_CITADEL("10");
+    THE_CITADEL("10"),
+
+    UNKNOWN(null);
 
     /**
      * The unique identifier associated with the location type.
@@ -90,6 +92,6 @@ public enum LocationType {
         return Stream.of(values())
                 .filter(location -> location.name().equalsIgnoreCase(value))
                 .findFirst()
-                .orElse(THE_CITADEL);
+                .orElse(UNKNOWN);
     }
 }

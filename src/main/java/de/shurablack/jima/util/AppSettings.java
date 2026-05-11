@@ -249,6 +249,17 @@ public class AppSettings {
     }
 
     /**
+     * <b>Don't use this function in production</b><br>
+     * This function is for convenience in testing/development.
+     *
+     * @param password The password which will be used to decrypt the token store.
+     * @see #requestPasswordInput()
+     */
+    public static void requestPasswordInput(String password) {
+        TOKEN_STORE_PASSWORD = password.toCharArray();
+    }
+
+    /**
      * Private constructor for singleton initialization.
      *
      * <p><b>Made Private to Enforce Singleton Pattern:</b></p>

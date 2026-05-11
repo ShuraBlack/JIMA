@@ -254,6 +254,7 @@ public class RequestManager {
                     int remaining = response.headers().firstValue(X_RATE_LIMIT_REMAINING).flatMap(v -> safeParseHeader(v, Integer.class)).orElse(-1);
                     long reset = response.headers().firstValue(X_RATE_LIMIT_RESET).flatMap(v -> safeParseHeader(v, Long.class)).orElse(Instant.now().getEpochSecond() + 60);
                     token.updateFromResponse(remaining, reset);
+                    token.setScopes(auth.getScopes());
 
                     tokenPool.initializeToken(token);
                     LOGGER.info("Token {} authenticated successfully with rate limit: {}", token.getMaskedKey(), auth.getRateLimit());
@@ -476,7 +477,7 @@ public class RequestManager {
             );
         }
 
-        return token == null ? sendAsync(url, type) : sendAsync(url, type, token);
+        return token == null ? sendAsync(endpoint, url, type) : sendAsync(endpoint, url, type, token);
     }
 
     /**
@@ -498,12 +499,13 @@ public class RequestManager {
      * </ul>
      *
      * @param <T> The response data type
+     * @param endpoint The API endpoint being called (used for scope checking)
      * @param url The full request URL
      * @param type The response class for deserialization
      * @return CompletableFuture containing the Response
      * @throws IllegalStateException If TokenPool is not initialized
      */
-    protected <T> CompletableFuture<Response<T>> sendAsync(String url, Class<T> type) {
+    protected <T> CompletableFuture<Response<T>> sendAsync(Endpoint endpoint, String url, Class<T> type) {
         if (shuttingDown) {
             return CompletableFuture.completedFuture(
                     new Response<>(ResponseCode.BAD_REQUEST, null, "Application shutting down")
@@ -518,28 +520,43 @@ public class RequestManager {
 
         return this.tokenPool.acquire()
                 .thenCompose(token -> {
+                    if (!token.hasScope(endpoint)) {
+                        return CompletableFuture.completedFuture(new Response<>(
+                                ResponseCode.FORBIDDEN,
+                                null,
+                                "The token does not contain permission for " + endpoint.getScope()
+                        ));
+                    }
+
                     HttpRequest request = buildRequest(url, token.getKey());
                     return client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                            .thenApply(response -> new AbstractMap.SimpleEntry<>(token, response));
+                            .thenCompose(response -> handleResponseAsync(endpoint, token, response, type));
                 })
-                .thenCompose(entry -> handleResponseAsync(entry.getKey(), entry.getValue(), type))
                 .whenComplete((response, ex) -> {
                     if (ex == null && response.isSuccessful()) {
                         saveCacheData(url, response.getData(), type);
                     }
                 });
+
     }
 
     /**
      * Sends an asynchronous HTTP request with a specific token.
      *
      * @param <T> The response data type
+     * @param endpoint The API endpoint being called (used for scope checking)
      * @param url The full request URL
      * @param type The response class for deserialization
      * @param token The Token to use for this request
      * @return CompletableFuture containing the Response
      */
-    public <T> CompletableFuture<Response<T>> sendAsync(String url, Class<T> type, Token token) {
+    public <T> CompletableFuture<Response<T>> sendAsync(Endpoint endpoint, String url, Class<T> type, Token token) {
+        if (!token.hasScope(endpoint)) {
+            return CompletableFuture.completedFuture(
+                    new Response<>(ResponseCode.FORBIDDEN, null, "The token does not contain permission for " + endpoint.getScope())
+            );
+        }
+
         metric.incrementTotalRequests();
         metric.incrementInFlight();
 
@@ -547,9 +564,8 @@ public class RequestManager {
                 .thenCompose(v -> {
                     HttpRequest request = buildRequest(url, token.getKey());
                     return client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                            .thenApply(response -> new AbstractMap.SimpleEntry<>(token, response));
+                            .thenCompose(response -> handleResponseAsync(endpoint, token, response, type));
                 })
-                .thenCompose(entry -> handleResponseAsync(entry.getKey(), entry.getValue(), type))
                 .whenComplete((response, ex) -> {
                     if (ex == null && response.isSuccessful()) {
                         saveCacheData(url, response.getData(), type);
@@ -613,12 +629,13 @@ public class RequestManager {
      * </ul>
      *
      * @param <T> The response data type
+     * @param endpoint The API endpoint being called (used for scope checking)
      * @param token The Token used for this request
      * @param response The HTTP response from the server
      * @param type The response class for deserialization
      * @return CompletableFuture completing with Response object with data or error
      */
-    private <T> CompletableFuture<Response<T>> handleResponseAsync(Token token, HttpResponse<String> response, Class<T> type) {
+    private <T> CompletableFuture<Response<T>> handleResponseAsync(Endpoint endpoint, Token token, HttpResponse<String> response, Class<T> type) {
         try {
             metric.decrementInFlight();
 
@@ -632,7 +649,7 @@ public class RequestManager {
                 LOGGER.warn("Rate limit hit for token {}. Remaining: {}, Reset at: {}. Scheduling retry asynchronously.",
                         token.getMaskedKey(), remaining, Instant.ofEpochSecond(reset));
                 metric.incrementRetries();
-                return scheduleRetry(response.uri().toString(), type, reset);
+                return scheduleRetry(endpoint, response.uri().toString(), type, reset);
             }
 
             if (response.statusCode() >= 200 && response.statusCode() < 300) {
@@ -694,16 +711,17 @@ public class RequestManager {
      * </ul>
      *
      * @param <T> The response data type
+     * @param endpoint The API endpoint being called (used for scope checking)
      * @param url The URL to retry
      * @param type The response class
      * @param reset Unix timestamp when rate limit resets
      * @return CompletableFuture that completes when retry is done
      */
-    private <T> CompletableFuture<Response<T>> scheduleRetry(String url, Class<T> type, long reset) {
+    private <T> CompletableFuture<Response<T>> scheduleRetry(Endpoint endpoint, String url, Class<T> type, long reset) {
         long delay = Math.max(10, reset - Instant.now().getEpochSecond() + 1);
         LOGGER.info("Scheduling retry in {} second/s for URL: {}", delay, url);
         CompletableFuture<Response<T>> future = new CompletableFuture<>();
-        scheduler.schedule(() -> sendAsync(url, type).whenComplete((response, ex) -> {
+        scheduler.schedule(() -> sendAsync(endpoint, url, type).whenComplete((response, ex) -> {
             if (ex == null && response.isSuccessful()) {
                 saveCacheData(url, response.getData(), type);
             }

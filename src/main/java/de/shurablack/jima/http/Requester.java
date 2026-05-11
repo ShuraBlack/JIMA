@@ -22,8 +22,11 @@ import de.shurablack.jima.model.item.Items;
 import de.shurablack.jima.model.item.market.MarketHistory;
 import de.shurablack.jima.model.pet.Listings;
 import de.shurablack.jima.model.shrine.ShrineInfo;
+import de.shurablack.jima.model.world.WorldLocations;
+import de.shurablack.jima.util.AppSettings;
 import de.shurablack.jima.util.ItemNameMatcher;
 import de.shurablack.jima.util.Token;
+import de.shurablack.jima.util.TokenUtil;
 import de.shurablack.jima.util.types.ItemType;
 import de.shurablack.jima.util.types.LocationType;
 import de.shurablack.jima.util.types.MarketType;
@@ -134,6 +137,21 @@ public class Requester {
                 null,
                 Authentication.class,
                 token
+        ).join();
+    }
+
+    /**
+     * Retrieves all world locations with extended weather forecast data.
+     *
+     * @return A {@code Response<WorldLocations>} containing all world locations with weather data,
+     *         or an error response if the request fails
+     */
+    public static Response<WorldLocations> getWorldLocations() {
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.WORLD_LOCATIONS_LIST,
+                null,
+                null,
+                WorldLocations.class
         ).join();
     }
 

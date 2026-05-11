@@ -1,8 +1,11 @@
 package de.shurablack.jima.util;
 
+import de.shurablack.jima.http.Endpoint;
 import lombok.Getter;
+import lombok.Setter;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -115,6 +118,13 @@ public class Token {
     private final String key;
 
     /**
+     * Scopes of the API token or null if the token can access all Endpoints.
+     */
+    @Nullable
+    @Setter
+    private List<String> scopes;
+
+    /**
      * The number of remaining requests within the current rate limit period.
      * Uses AtomicInteger for thread-safe updates without explicit synchronization.
      * Value is decremented with each acquire() and reset to max when reset time is reached.
@@ -157,10 +167,12 @@ public class Token {
      *
      * @param key The API token/key string (e.g., "sk_live_xxxxxxxxxxx")
      * @param max The maximum number of requests allowed per rate limit period (e.g., 100)
+     * @param scopes The scopes of the API token or null if the token can access all Endpoints
      * @throws NullPointerException If key parameter is null
      */
-    public Token(String key, int max) {
+    public Token(String key, int max, List<String> scopes) {
         this.key = key;
+        this.scopes = scopes;
         this.max.set(max);
     }
 
@@ -404,6 +416,20 @@ public class Token {
             return "*".repeat(key.length());
         }
         return "*".repeat(key.length() - 10) + key.substring(key.length() - 10);
+    }
+
+    /**
+     * Checks if the API token is allowed to access the given endpoint based on its scopes.
+     *
+     * @param endpoint The endpoint to check.
+     * @return True if the scope is null or contained, else false.
+     */
+    public boolean hasScope(Endpoint endpoint) {
+        if (this.scopes == null) {
+            return true;
+        }
+
+        return this.scopes.contains(endpoint.getScope());
     }
 
     /**

@@ -19,6 +19,7 @@ import de.shurablack.jima.model.item.ItemInspection;
 import de.shurablack.jima.model.item.Items;
 import de.shurablack.jima.model.item.market.MarketHistory;
 import de.shurablack.jima.model.shrine.ShrineInfo;
+import de.shurablack.jima.model.world.WorldLocations;
 import de.shurablack.jima.util.Token;
 import de.shurablack.jima.util.types.ItemType;
 import de.shurablack.jima.util.types.LocationType;
@@ -64,6 +65,21 @@ public class ParallelRequester {
                 null,
                 Authentication.class,
                 token
+        );
+    }
+
+    /**
+     * Asynchronously retrieves all world locations with extended weather forecast data.
+     *
+     * @return A {@code CompletableFuture<Response<WorldLocations>>} that completes with all
+     *         world locations and weather data, or an error response if the request fails
+     */
+    public static CompletableFuture<Response<WorldLocations>> getWorldLocations() {
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.WORLD_LOCATIONS_LIST,
+                null,
+                null,
+                WorldLocations.class
         );
     }
 

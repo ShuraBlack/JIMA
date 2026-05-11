@@ -1,6 +1,7 @@
 package de.shurablack.jima.util;
 
 import java.util.Comparator;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.*;
 
@@ -106,12 +107,13 @@ public class TokenPool {
      * from multiple threads during pool initialization.
      *
      * @param key The API token/key string (e.g., "sk_live_xxxxxxxxxxx")
+     * @param scopes The list of scopes/permissions associated with this token or null if any
      * @param remaining The current number of remaining requests (from API response)
      * @param max The maximum number of requests allowed per rate limit period (e.g., 100)
      * @param nextReset The Unix timestamp when the rate limit resets (seconds since epoch)
      * @throws IllegalStateException If a token with the same key already exists in the pool
      */
-    public synchronized void initializeToken(String key, int remaining, int max, int nextReset) {
+    public synchronized void initializeToken(String key, List<String> scopes, int remaining, int max, int nextReset) {
         Optional<Token> existing = tokens.stream()
                 .filter(t -> t.getKey().equals(key))
                 .findFirst();
@@ -120,7 +122,7 @@ public class TokenPool {
             throw new IllegalStateException("Token already exists!");
         }
 
-        Token token = new Token(key, max);
+        Token token = new Token(key, max, scopes);
         token.updateFromResponse(remaining, nextReset);
         tokens.add(token);
     }
