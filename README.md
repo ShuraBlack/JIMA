@@ -28,6 +28,7 @@
   - [Requester](#1-requester--main-entry-point)
   - [RequestManager](#2-requestmanager--request-management)
   - [TokenPool](#3-tokenpool--token-management)
+  - [Overview Builders](#5-overview-builders--composite-data-fetching)
 - [API Reference](#-supported-api-endpoints)
 - [Project Structure](#-project-structure)
 - [Best Practices](#-best-practices)
@@ -101,7 +102,7 @@ if (charResponse.isSuccessful()) {
 - 💡 Managed requests without a single line of code
 - ⚡ Easy-to-use request methods for seamless data retrieval
 - 💾 Built-in configuration management for API keys and application settings
-- 🔄 Support for rotating tokens to improve rate limits
+- 🔄 Automatic token management with intelligent rate-limit handling
 - 🌐 Comprehensive support for game features like world bosses, guild conquests, and market history
 - 🔒 Secure token management with automatic rate-limit tracking
 
@@ -302,7 +303,102 @@ Requester.getMultipleGuildMembers(List<Integer> guildIds);
 Requester.getMultipleItemInspections(List<String> itemIds);
 ```
 
-### 5. PaginationHelper – Automatic Multi-Page Fetching
+### 5. Overview Builders – Composite Data Fetching
+
+Overview Builders provide a fluent API for composing multiple related API requests into a single comprehensive object. They intelligently handle optional data components, error handling, and conditional data fetching.
+
+**Available Builders:**
+
+- **CharacterOverview**: Combines character info with optional metrics, effects, museum, pets, actions, and alts
+- **GuildOverview**: Combines guild info and members with optional conquest data (automatically filtered)
+- **ItemOverview**: Combines item inspection with optional market listings and orders (skipped for non-tradeable items)
+
+**Example: Fetching Complete Character Information**
+
+```java
+// Build a comprehensive character overview with optional components
+Response<CharacterOverview> response = CharacterOverview.Builder
+    .of("characterHash")
+    .withMetric()
+    .withEffects()
+    .withMuseum()
+    .withPets()
+    .build();
+
+if (response.isSuccessful()) {
+    CharacterOverview overview = response.getData();
+    CharacterView character = overview.getCharacter();
+    CharacterMetric metrics = overview.getMetric();
+    CharacterEffects effects = overview.getEffects();
+} else {
+    System.err.println("Error: " + response.getError());
+}
+```
+
+**Example: Guild Overview with Conquest Data**
+
+```java
+Response<GuildOverview> response = GuildOverview.Builder
+    .of(guildId)
+    .withConquest()  // Automatically filters to show only guild's controlled zones
+    .build();
+
+if (response.isSuccessful()) {
+    GuildOverview overview = response.getData();
+    GuildConquest conquest = overview.getConquest();
+    // conquest contains only zones controlled by this guild
+}
+```
+
+**Example: Item Overview with Market Data**
+
+```java
+Response<ItemOverview> response = ItemOverview.Builder
+    .of("itemHash")
+    .withListings()  // Seller order history
+    .withOrders()    // Buyer order history
+    .build();
+
+if (response.isSuccessful()) {
+    ItemOverview overview = response.getData();
+    ItemInspection inspection = overview.getInspection();
+    
+    // Market data only available for tradeable items
+    if (inspection.getItem().isTradeable()) {
+        MarketHistory listings = overview.getListings();
+        MarketHistory orders = overview.getOrders();
+    }
+}
+```
+
+**Key Features:**
+
+- **Fluent API**: Chain methods to select optional data components
+- **Fail-Fast Error Handling**: Returns immediately on first failure, no partial data
+- **Smart Optimization**: Only fetches relevant data (e.g., skips market data for non-tradeable items)
+- **Sequential Execution**: Queued requests execute in order, maintaining consistency
+- **Data Transformation**: Optional transformers for filtering or processing data before assignment
+
+> [!TIP]
+> **Extensibility**: You can create your own custom Overview Builders by extending `OverviewBuilder<T>`. This allows you to build request chains for composite data structures specific to your application needs.
+
+> ```java
+> public class CustomOverview extends OverviewBuilder<MyData> {
+>     public CustomOverview() {
+>         super(new MyData());
+>     }
+>     
+>     public CustomOverview withCustomData() {
+>         this.withGeneric(
+>             () -> Requester.someMethod(),
+>             this.getOverview()::setSomeField
+>         );
+>         return this;
+>     }
+> }
+> ```
+
+### 5. Batch Operations – Parallel Requests
 
 For endpoints that return paginated results, the `PaginationHelper` utility automatically handles fetching all pages and combining results:
 
@@ -342,7 +438,7 @@ PaginationHelper.getTotalCount(ItemType itemType);
 > [!NOTE]
 > PaginationHelper methods make multiple API requests (one per page). For large datasets, this can take significant time. Progress is logged automatically.
 
-### 6. Enum Conversions – Type-Safe String Parsing
+### 7. Enum Conversions – Type-Safe String Parsing
 
 String values from external sources can be safely converted to enum types with case-insensitive matching:
 
@@ -374,7 +470,7 @@ StatType.fromString(String value);            // Converts to StatType, defaults 
 SecondaryStatType.fromString(String value);   // Converts to SecondaryStatType, defaults to UNKNOWN
 ```
 
-### 7. Response Utilities
+### 8. Response Utilities
 
 The `Response<T>` class provides convenient utility methods for handling API responses:
 
@@ -587,10 +683,10 @@ This project is licensed under the **Apache License 2.0** — see the [LICENSE](
 
 ### Project
 
-- 📖 [English Docs](README.md) (this file)
-- 🇩🇪 [German Docs](README.de.md)
+- 📖 [Docs](README.md) (this file)
 - 💻 [GitHub Repository](https://github.com/ShuraBlack/JIMA)
 - 📦 [Maven Central](https://mvnrepository.com/artifact/io.github.shurablack/JIMA)
+-
 
 </td>
 <td width="50%">
