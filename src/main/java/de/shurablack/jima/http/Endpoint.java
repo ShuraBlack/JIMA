@@ -107,6 +107,16 @@ public enum Endpoint {
     GUILD_MEMBERS(BASE_URL.path + "/guild/{id}/members", "v1.guild.members"),
 
     /**
+     * Endpoint for retrieving guild specific information about the energizing pool.
+     */
+    GUILD_ENERGIZING_POOL_INFORMATION(BASE_URL.path + "/guild/{id}/energizing-pool/information", "v1.guild.energizing_pool.information"),
+
+    /**
+     * Endpoint for retrieving precise information about the guild hall and all components.
+     */
+    GUILD_HALL(BASE_URL.path + "/guild/{id}/hall", "v1.guild.hall"),
+
+    /**
      * Endpoint for viewing guild conquests.
      */
     GUILD_CONQUESTS(BASE_URL.path + "/guild/conquest/view", "v1.guild.conquest.view"),

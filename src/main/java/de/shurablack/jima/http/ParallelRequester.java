@@ -15,6 +15,8 @@ import de.shurablack.jima.model.guild.GuildMembers;
 import de.shurablack.jima.model.guild.GuildView;
 import de.shurablack.jima.model.guild.conquest.GuildConquest;
 import de.shurablack.jima.model.guild.conquest.GuildConquestInspection;
+import de.shurablack.jima.model.guild.events.EnergizingPoolInfo;
+import de.shurablack.jima.model.guild.hall.GuildHallView;
 import de.shurablack.jima.model.item.ItemInspection;
 import de.shurablack.jima.model.item.Items;
 import de.shurablack.jima.model.item.market.MarketHistory;
@@ -437,6 +439,56 @@ public class ParallelRequester {
                 Map.of("id", String.valueOf(id)),
                 null,
                 GuildMembers.class
+        );
+    }
+
+    /**
+     * Asynchronously fetches the current Energizing Pool status and effects for a guild.
+     *
+     * The API key owner must be a guild member with energizing pool view permission.
+     *
+     * @param id The guild ID to fetch pool information for
+     * @return CompletableFuture resolving to EnergizingPoolInfo with status and effects, or error code
+     *
+     * @see EnergizingPoolInfo For response data structure
+     * @see Requester#getEnergizingPoolInfo(int) For synchronous variant
+     */
+    public static CompletableFuture<Response<EnergizingPoolInfo>> getEnergizingPoolInfo(int id) {
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.GUILD_ENERGIZING_POOL_INFORMATION,
+                Map.of("id", String.valueOf(id)),
+                null,
+                EnergizingPoolInfo.class
+        );
+    }
+
+    /**
+     * Retrieves detailed guild hall information including layout, upgrades, and blueprints (non-blocking).
+     *
+     * <p><b>Authorization:</b></p>
+     * Authorization matches the in-game guild hall view:
+     * <ul>
+     *   <li><b>Own Guild Hall:</b> View allowed if your guild rank has guild hall view permission</li>
+     *   <li><b>Other guild halls:</b> View allowed only if that guild has public guild hall visibility enabled</li>
+     * </ul>
+     *
+     * <p><b>Async Behavior:</b></p>
+     * Returns a CompletableFuture for non-blocking operation. Combine with other parallel
+     * requests using CompletableFuture.allOf() for efficient batch operations.
+     *
+     * @param id The guild ID whose guild hall to fetch
+     * @return A CompletableFuture that resolves to guild hall details with upgrades, blueprints, and slot information
+     *
+     * @see GuildHallView For the response structure
+     * @see de.shurablack.jima.model.guild.hall.GuildHall For guild hall data model
+     * @see Requester#getGuildHall(int) For blocking variant
+     */
+    public static CompletableFuture<Response<GuildHallView>> getGuildHall(int id) {
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.GUILD_HALL,
+                Map.of("id", String.valueOf(id)),
+                null,
+                GuildHallView.class
         );
     }
 

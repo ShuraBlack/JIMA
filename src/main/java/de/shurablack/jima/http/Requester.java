@@ -16,6 +16,8 @@ import de.shurablack.jima.model.guild.GuildMembers;
 import de.shurablack.jima.model.guild.GuildView;
 import de.shurablack.jima.model.guild.conquest.GuildConquest;
 import de.shurablack.jima.model.guild.conquest.GuildConquestInspection;
+import de.shurablack.jima.model.guild.events.EnergizingPoolInfo;
+import de.shurablack.jima.model.guild.hall.GuildHallView;
 import de.shurablack.jima.model.item.Item;
 import de.shurablack.jima.model.item.ItemInspection;
 import de.shurablack.jima.model.item.Items;
@@ -23,10 +25,8 @@ import de.shurablack.jima.model.item.market.MarketHistory;
 import de.shurablack.jima.model.pet.Listings;
 import de.shurablack.jima.model.shrine.ShrineInfo;
 import de.shurablack.jima.model.world.WorldLocations;
-import de.shurablack.jima.util.AppSettings;
 import de.shurablack.jima.util.ItemNameMatcher;
 import de.shurablack.jima.util.Token;
-import de.shurablack.jima.util.TokenUtil;
 import de.shurablack.jima.util.types.ItemType;
 import de.shurablack.jima.util.types.LocationType;
 import de.shurablack.jima.util.types.MarketType;
@@ -1091,6 +1091,52 @@ public class Requester {
         return futures.stream()
                 .map(CompletableFuture::join)
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Fetches the current Energizing Pool status and effects for a guild.
+     *
+     * The API key owner must be a guild member with energizing pool view permission.
+     *
+     * @param id The guild ID to fetch pool information for
+     * @return Response containing EnergizingPoolInfo with status and effects, or error code
+     *
+     * @see EnergizingPoolInfo For response data structure
+     * @see ParallelRequester#getEnergizingPoolInfo(int) For async variant
+     */
+    public static Response<EnergizingPoolInfo> getEnergizingPoolInfo(int id) {
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.GUILD_ENERGIZING_POOL_INFORMATION,
+                Map.of("id", String.valueOf(id)),
+                null,
+                EnergizingPoolInfo.class
+        ).join();
+    }
+
+    /**
+     * Retrieves detailed guild hall information including layout, upgrades, and blueprints.
+     *
+     * <p><b>Authorization:</b></p>
+     * Authorization matches the in-game guild hall view:
+     * <ul>
+     *   <li><b>Own Guild Hall:</b> View allowed if your guild rank has guild hall view permission</li>
+     *   <li><b>Other guild halls:</b> View allowed only if that guild has public guild hall visibility enabled</li>
+     * </ul>
+     *
+     * @param id The guild ID whose guild hall to fetch
+     * @return A response containing guild hall details with upgrades, blueprints, and slot information
+     *
+     * @see GuildHallView For the response structure
+     * @see de.shurablack.jima.model.guild.hall.GuildHall For guild hall data model
+     * @see ParallelRequester#getGuildHall(int) For non-blocking variant
+     */
+    public static Response<GuildHallView> getGuildHall(int id) {
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.GUILD_HALL,
+                Map.of("id", String.valueOf(id)),
+                null,
+                GuildHallView.class
+        ).join();
     }
 
     /**

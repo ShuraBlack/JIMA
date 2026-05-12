@@ -51,7 +51,8 @@ public class GuildReference {
     /**
      * The number of members in the guild.
      */
+    @Nullable
     @JsonProperty(required = false)
-    private int memberCount;
+    private Integer memberCount;
 
 }
