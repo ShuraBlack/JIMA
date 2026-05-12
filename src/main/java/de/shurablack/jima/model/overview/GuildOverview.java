@@ -8,6 +8,7 @@ import de.shurablack.jima.model.guild.GuildView;
 import de.shurablack.jima.model.guild.conquest.GuildConquest;
 import de.shurablack.jima.model.guild.conquest.Zone;
 import de.shurablack.jima.model.guild.events.EnergizingPoolInfo;
+import de.shurablack.jima.model.guild.hall.GuildHallView;
 import de.shurablack.jima.util.Nullable;
 import lombok.*;
 
@@ -22,6 +23,7 @@ import java.util.Map;
  *   <li><b>members:</b> Guild member roster (required)</li>
  *   <li><b>conquest:</b> Guild territorial control data, filtered for this guild only (optional)</li>
  *   <li><b>energizing pool:</b> Guild energizing pool event/status (optional)</li>
+ *   <li><b>guild hall:</b>Guild structure with components and status (optional)</li>
  * </ul>
  *
  * <p><b>Conquest Data Note:</b></p>
@@ -64,6 +66,9 @@ public class GuildOverview {
 
     @Nullable
     private EnergizingPoolInfo energizingPool;
+
+    @Nullable
+    private GuildHallView hall;
 
     /**
      * Builder for constructing GuildOverview instances with selective data loading.
@@ -137,6 +142,19 @@ public class GuildOverview {
             withGeneric(
                     () -> Requester.getEnergizingPoolInfo(id),
                     this.getOverview()::setEnergizingPool
+            );
+            return this;
+        }
+
+        /**
+         * Includes guild hall and components information for the corresponding guild.
+         *
+         * @return The builder for method chaining
+         */
+        public Builder withHall() {
+            withGeneric(
+                    () -> Requester.getGuildHall(id),
+                    this.getOverview()::setHall
             );
             return this;
         }
