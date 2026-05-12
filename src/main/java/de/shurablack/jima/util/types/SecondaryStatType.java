@@ -47,6 +47,11 @@ public enum SecondaryStatType {
     DAMAGE,
 
     /**
+     * Represents maximum stamina of e.g. pets.
+     */
+    MAX_STAMINA,
+
+    /**
      * Represents an unknown secondary stat type.
      */
     UNKNOWN;

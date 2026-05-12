@@ -8,12 +8,12 @@ import lombok.*;
 @Setter
 @EqualsAndHashCode
 @ToString
-public class Location {
+public class Record {
 
-    private int id;
+    private int current;
 
-    private String name;
+    private int maximum;
 
-    private boolean locked;
+    private int percentage;
 
 }

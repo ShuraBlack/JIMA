@@ -1,17 +1,15 @@
 package de.shurablack.jima.model.character.pet;
 
-import de.shurablack.jima.model.pet.Evolution;
-import de.shurablack.jima.util.types.Quality;
+import de.shurablack.jima.model.shared.TimeRange;
 import de.shurablack.jima.util.Nullable;
+import de.shurablack.jima.util.types.Quality;
+import de.shurablack.jima.util.types.SecondaryStatType;
 import lombok.*;
 
 import java.time.LocalDateTime;
 import java.util.Map;
 
-/**
- * Represents detailed information about a pet.
- * This class contains various attributes of a pet, including its ID, name, stats, health, happiness, and more.
- */
+
 @AllArgsConstructor
 @NoArgsConstructor
 @Getter
@@ -20,83 +18,42 @@ import java.util.Map;
 @ToString
 public class PetDetail {
 
-    /**
-     * The unique identifier for the pet.
-     */
-    private int id;
+    private Integer id;
 
-    /**
-     * The name of the pet.
-     */
     private String name;
 
-    /**
-     * The custom name of the pet, if any.
-     * This field is nullable.
-     */
     @Nullable
     private String customName;
 
-    /**
-     * The identifier for the pet type.
-     */
     private int petId;
 
-    /**
-     * The URL of the pet's image.
-     */
+    private String petName;
+
     private String imageUrl;
 
-    /**
-     * The level of the pet.
-     */
     private int level;
 
-    /**
-     * The experience points of the pet.
-     */
-    private long experience;
+    private int experience;
 
-    /**
-     * The quality of the pet.
-     */
+    private int totalExperience;
+
     private Quality quality;
 
-    /**
-     * A map containing the pet's stats, where the key is the stat name and the value is the stat value.
-     */
-    private Map<String, Integer> stats;
+    private Map<SecondaryStatType, Integer> stats;
 
-    /**
-     * The health details of the pet.
-     */
-    private Health health;
+    private Record health;
 
-    /**
-     * Indicates whether the pet is currently equipped.
-     */
+    private Record happiness;
+
+    private Record hunger;
+
     private boolean equipped;
 
-    /**
-     * The battle details of the pet, if it is engaged in a battle.
-     * This field is nullable.
-     */
-    @Nullable
-    private Battle battle;
+    private TimeRange battle;
 
-    /**
-     * The evolution details of the pet.
-     */
     private Evolution evolution;
 
-    /**
-     * The location details associated with the pet.
-     */
     private Location location;
 
-    /**
-     * The timestamp when the pet was created.
-     */
     private LocalDateTime createdAt;
-
 }
