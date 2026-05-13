@@ -55,13 +55,14 @@ public abstract class OverviewBuilder<T> {
      * @param requester Supplier that makes the API request and returns a Response
      * @param setter Consumer that assigns the data to the overview object
      *
-     * <p><b>Example:</b></p>
-     * <pre>
-     * this.withGeneric(
-     *     () -> Requester.getCharacterMetrics(hashedId),
-     *     this.getOverview()::setMetric
-     * );
-     * </pre>
+      * <p><b>Example:</b></p>
+      * <pre>{@code
+      * this.withGeneric(
+      *     () -> Requester.getCharacterMetrics(hashedId),
+      *     this.getOverview()::setMetric
+      * );
+      * }
+      * </pre>
      */
     public <E> void withGeneric(
             Supplier<Response<E>> requester,
@@ -87,14 +88,15 @@ public abstract class OverviewBuilder<T> {
      * @param setter Consumer that assigns the transformed data to the overview object
      * @param transformer Consumer that processes the data before assignment
      *
-     * <p><b>Example:</b></p>
-     * <pre>
-     * this.withGeneric(
-     *     Requester::getCurrentGuildConquest,
-     *     this.getOverview()::setConquest,
-     *     conquest -> filterConquestZones(id, conquest)
-     * );
-     * </pre>
+      * <p><b>Example:</b></p>
+      * <pre>{@code
+      * this.withGeneric(
+      *     Requester::getCurrentGuildConquest,
+      *     this.getOverview()::setConquest,
+      *     conquest -> filterConquestZones(id, conquest)
+      * );
+      * }
+      * </pre>
      */
     public <E> void withGeneric(
             Supplier<Response<E>> requester,

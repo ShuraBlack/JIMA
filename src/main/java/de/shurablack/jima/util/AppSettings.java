@@ -85,7 +85,7 @@ import java.util.Scanner;
  * </ul>
  *
  * <p><b>Example Usage:</b></p>
- * <pre>
+ * <pre>{@code
  * // Typical initialization in main()
  * public static void main(String[] args) {
  *     AppSettings.requestPasswordInput();              // Prompt for password
@@ -100,7 +100,14 @@ import java.util.Scanner;
  *
  *     // Proceed with application logic
  *     Requester.getAuthentication();
- *  <li><b>Missing Token Store:</b> Throws IllegalStateException (must be created via TokenUtil)</li>
+ * }
+ * }</pre>
+ *
+ * <p><b>Error Conditions:</b></p>
+ * <ul>
+ *   <li><b>Missing Configuration File:</b> Creates default {@code jima-settings.json}</li>
+ *   <li><b>Missing Password:</b> Prompts for password via system input</li>
+ *   <li><b>Missing Token Store:</b> Throws IllegalStateException (must be created via TokenUtil)</li>
  * </ul>
  *
  * @see AppSettings.Settings
@@ -243,9 +250,7 @@ public class AppSettings {
      * @see #TOKEN_STORE_PASSWORD
      */
     public static void requestPasswordInput() {
-        Scanner scanner = new Scanner(System.in);
-        System.out.print("[JIMA] Enter token store Password: ");
-        TOKEN_STORE_PASSWORD = scanner.next().trim().toCharArray();
+        TOKEN_STORE_PASSWORD = System.console().readPassword("[JIMA] Enter token store Password: ");
     }
 
     /**
@@ -403,17 +408,15 @@ public class AppSettings {
         @JsonProperty(value = "usage_limit", required = true)
         private int usageLimit;
 
-        /**
-         * Creates a Settings object with default placeholder values.
-         *
-         * <p><b>Purpose:</b></p>
-         * Used to generate template jima-settings.json file when creating configuration
-         * for the first time. Provides template that user can edit with real values.
-         *
-         * @return New Settings instance with placeholder values
-         *
-         * @see #AppSettings()
-         */
+         /**
+          * Creates a Settings object with default placeholder values.
+          *
+          * <p><b>Purpose:</b></p>
+          * Used to generate template jima-settings.json file when creating configuration
+          * for the first time. Provides template that user can edit with real values.
+          *
+          * @return New Settings instance with placeholder values
+          */
         public static Settings withDefault() {
             return new Settings(
                     "your_app_name_here",

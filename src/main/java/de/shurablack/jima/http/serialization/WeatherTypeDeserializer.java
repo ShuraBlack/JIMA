@@ -29,7 +29,6 @@ import java.io.IOException;
  *
  * @see WeatherType Enum with flexible parsing logic
  * @see de.shurablack.jima.model.world.Weather Model class containing weather type fields
- * @see de.shurablack.jima.http.HttpClient For Jackson configuration
  */
 public class WeatherTypeDeserializer extends JsonDeserializer<WeatherType> {
 

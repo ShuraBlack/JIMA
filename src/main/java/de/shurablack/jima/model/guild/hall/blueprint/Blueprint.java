@@ -10,10 +10,23 @@ import java.util.List;
 /**
  * Guild hall upgrade or construction blueprint.
  *
- * <p><b>Replacement:</b></p>
- * If {@code isReplacement} is true, this blueprint replaces a previous version
- * identified by {@code replacesBlueprintId}.
- * </p>
+ * <p><b>Blueprint Types:</b></p>
+ * <ul>
+ *   <li><b>Upgrade:</b> Improvements to existing structures</li>
+ *   <li><b>Construction:</b> New structures to build</li>
+ * </ul>
+ *
+ * <p><b>Processing:</b></p>
+ * <ul>
+ *   <li>Set guild prerequisites (level needed to construct)</li>
+ *   <li>Gather material requirements from {@code requirements} list</li>
+ *   <li>Pay construction cost in gold/resources</li>
+ *   <li>Construction takes {@code length} to complete</li>
+ *   <li>Benefits are applied upon completion</li>
+ * </ul>
+ *
+ * <p><b>Replacement:</b> If {@code isReplacement} is true, this blueprint replaces a previous version
+ * identified by {@code replacesBlueprintId}.</p>
  *
  * @see Requirement For material requirements
  * @see Length For construction duration

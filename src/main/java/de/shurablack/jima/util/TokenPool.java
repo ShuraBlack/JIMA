@@ -26,8 +26,8 @@ import java.util.concurrent.*;
  * <p><b>How It Works:</b></p>
  * <ol>
  *   <li>Tokens are stored in a list and managed individually via the {@link Token} class</li>
- *   <li>When a token is needed via {@link #acquire()}, the pool selects the token with the most remaining requests</li>
- *   <li>If a token is available (remaining > 0), its {@link Token#acquire()} method is called</li>
+ *   <li>When a token is needed via {@code acquire()}, the pool selects the token with the most remaining requests</li>
+ *   <li>If a token is available (remaining &gt; 0), its {@code acquire()} method is called</li>
  *   <li>If all tokens are exhausted (remaining ≤ 0), the pool calculates wait time based on nearest reset</li>
  *   <li>The pool schedules a retry operation after the wait time elapses</li>
  *   <li>Waiting is done asynchronously using ScheduledExecutorService to avoid blocking</li>
@@ -39,7 +39,7 @@ import java.util.concurrent.*;
  * that use CompletableFuture for asynchronous coordination.
  *
  * <p><b>Example Usage:</b></p>
- * <pre>
+ * <pre>{@code
  * // Create a pool (typically created by RequestManager)
  * TokenPool pool = new TokenPool();
  *
@@ -61,7 +61,7 @@ import java.util.concurrent.*;
  *     int minRemaining = pool.getMinRemainingTokens();
  *     System.out.println("Minimum remaining requests across all tokens: " + minRemaining);
  * }
- * </pre>
+ * }</pre>
  *
  * @see Token
  * @see de.shurablack.jima.http.RequestManager
@@ -164,33 +164,33 @@ public class TokenPool {
         return !tokens.isEmpty();
     }
 
-    /**
-     * Acquires a token from the pool for making a request.
-     *
-     * <p><b>Behavior:</b></p>
-     * <ul>
-     *   <li>Selects the token with the most remaining requests (greedy strategy)</li>
-     *   <li>If a token is available (remaining > 0), returns its acquisition future immediately</li>
-     *   <li>If all tokens are exhausted (remaining ≤ 0), schedules a retry after waiting</li>
-     *   <li>Wait time is based on the nearest token reset time, with a minimum 5-second wait</li>
-     * </ul>
-     *
-     * <p><b>Thread Safety:</b></p>
-     * This method is thread-safe and non-blocking. It returns immediately with a CompletableFuture
-     * that will eventually complete with an available token.
-     *
-     * <p><b>Example:</b></p>
-     * <pre>
-     * pool.acquire()
-     *     .thenAccept(token -> makeRequest(token))
-     *     .exceptionally(ex -> {
-     *         System.err.println("Token acquisition failed: " + ex);
-     *         return null;
-     *     });
-     * </pre>
-     *
-     * @return A CompletableFuture that completes with an available Token when one becomes available
-     */
+     /**
+      * Acquires a token from the pool for making a request.
+      *
+      * <p><b>Behavior:</b></p>
+      * <ul>
+      *   <li>Selects the token with the most remaining requests (greedy strategy)</li>
+      *   <li>If a token is available (remaining &gt; 0), returns its acquisition future immediately</li>
+      *   <li>If all tokens are exhausted (remaining ≤ 0), schedules a retry after waiting</li>
+      *   <li>Wait time is based on the nearest token reset time, with a minimum 5-second wait</li>
+      * </ul>
+      *
+      * <p><b>Thread Safety:</b></p>
+      * This method is thread-safe and non-blocking. It returns immediately with a CompletableFuture
+      * that will eventually complete with an available token.
+      *
+      * <p><b>Example:</b></p>
+      * <pre>{@code
+      * pool.acquire()
+      *     .thenAccept(token -> makeRequest(token))
+      *     .exceptionally(ex -> {
+      *         System.err.println("Token acquisition failed: " + ex);
+      *         return null;
+      *     });
+      * }</pre>
+      *
+      * @return A CompletableFuture that completes with an available Token when one becomes available
+      */
     public CompletableFuture<Token> acquire() {
         CompletableFuture<Token> future = new CompletableFuture<>();
         tryAcquire(future);

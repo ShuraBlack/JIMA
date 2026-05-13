@@ -34,8 +34,8 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * <p><b>How It Works:</b></p>
  * <ol>
- *   <li>When a request needs a token via {@link #acquire()}, it attempts to decrement the remaining count</li>
- *   <li>If remaining > 0, the request is immediately approved via a completed CompletableFuture</li>
+ *   <li>When a request needs a token via the {@code acquire()} method, it attempts to decrement the remaining count</li>
+ *   <li>If remaining &gt; 0, the request is immediately approved via a completed CompletableFuture</li>
  *   <li>If remaining ≤ 0, the request is queued (added to waiters) and returned as uncompleted future</li>
  *   <li>When reset time is reached or updated, remaining is reset to max and queued requests are processed</li>
  *   <li>The drainWaiters() method attempts to fulfill queued requests using the newly available quota</li>
@@ -59,7 +59,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * </ul>
  *
  * <p><b>Example Usage:</b></p>
- * <pre>
+ * <pre>{@code
  * // Create a new token with default max of 20 requests per minute
  * Token token = new Token("sk_live_abc123xyz789");
  *
@@ -88,7 +88,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * // Check time until reset
  * long secondsUntilReset = token.secondsUntilReset();
  * System.out.println("Rate limit resets in: " + secondsUntilReset + " seconds");
- * </pre>
+ * }</pre>
  *
  * <p><b>Performance Considerations:</b></p>
  * <ul>
@@ -190,31 +190,30 @@ public class Token {
         this.max.set(DEFAULT_MAX_REMAINING);
     }
 
-    /**
-     * Attempts to acquire a token slot for making a request.
-     *
-     * <p><b>Behavior:</b></p>
-     * <ul>
-     *   <li>If remaining requests > 0: Returns immediately with a completed future</li>
-     *   <li>If remaining requests ≤ 0: Queues the request and returns an uncompleted future</li>
-     *   <li>Automatically checks if reset time has passed and resets remaining quota</li>
-     *   <li>Uses lock-free compareAndSet for decrementing remaining count</li>
-     * </ul>
-     *
-     * <p><b>Thread Safety:</b></p>
-     * This method is thread-safe. Multiple threads can safely call this concurrently.
-     * The compareAndSet loop ensures only one thread successfully decrements the counter.
-     *
-     * <p><b>Return Value:</b></p>
-     * Returns a CompletableFuture<Void> that:
-     * <ul>
-     *   <li>Is already completed if a slot is immediately available</li>
-     *   <li>Will be completed later when a slot becomes available after reset or throttle</li>
-     * </ul>
-     *
-     * @param usageLimit The minimum number of requests left per rate limit period before queuing (e.g., 0 to queue when exhausted)
-     * @return A CompletableFuture that completes when a token slot is acquired
-     */
+     /**
+      * Attempts to acquire a token slot for making a request.
+      *
+      * <p><b>Behavior:</b></p>
+      * <ul>
+      *   <li>If remaining requests &gt; 0: Returns immediately with a completed future</li>
+      *   <li>If remaining requests ≤ 0: Queues the request and returns an uncompleted future</li>
+      *   <li>Automatically checks if reset time has passed and resets remaining quota</li>
+      *   <li>Uses lock-free compareAndSet for decrementing remaining count</li>
+      * </ul>
+      *
+      * <p><b>Thread Safety:</b></p>
+      * This method is thread-safe. Multiple threads can safely call this concurrently.
+      * The compareAndSet loop ensures only one thread successfully decrements the counter.
+      *
+      * <p><b>Return Value:</b> Returns a CompletableFuture that:</p>
+      * <ul>
+      *   <li>Is already completed if a slot is immediately available</li>
+      *   <li>Will be completed later when a slot becomes available after reset or throttle</li>
+      * </ul>
+      *
+      * @param usageLimit The minimum number of requests left per rate limit period before queuing (e.g., 0 to queue when exhausted)
+      * @return A CompletableFuture that completes when a token slot is acquired
+      */
     public CompletableFuture<Void> acquire(int usageLimit) {
         CompletableFuture<Void> future = new CompletableFuture<>();
         tryAcquire(future, usageLimit);

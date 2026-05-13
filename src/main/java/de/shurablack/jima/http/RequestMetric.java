@@ -110,11 +110,9 @@ public class RequestMetric {
      *   <li>Network timeouts or connection errors</li>
      *   <li>Other temporary failures that warrant retry</li>
      * </ul>
-     * </p>
      *
-     * <p><b>Note:</b></p>
-     * A retried request will also increment the totalRequests counter
-     * (since it's a new attempt), so retries <= totalRequests always.
+     * <p><b>Note:</b> A retried request will also increment the totalRequests counter
+     * (since it's a new attempt), so retries &lt;= totalRequests always.</p>
      *
      * @see #incrementTotalRequests()
      * @see #getSnapshot()
@@ -134,11 +132,9 @@ public class RequestMetric {
      *   <li>The request is cancelled or aborted</li>
      *   <li>The application is shutting down</li>
      * </ul>
-     * </p>
      *
-     * <p><b>Note:</b></p>
-     * A failed request won't increment retries (unless it was retried but
-     * ultimately failed). failures <= totalRequests always.
+     * <p><b>Note:</b> A failed request won't increment retries (unless it was retried but
+     * ultimately failed). failures &lt;= totalRequests always.</p>
      *
      * @see #getSnapshot()
      */
@@ -146,69 +142,61 @@ public class RequestMetric {
         failures.incrementAndGet();
     }
 
-    /**
-     * Creates an immutable snapshot of the current metric values.
-     *
-     * <p><b>Purpose:</b></p>
-     * Returns a snapshot (RequestMetricSnapshot) containing the current values
-     * of all counters at the moment this method is called. The snapshot
-     * is immutable, providing a consistent view of metrics that won't change
-     * even if other threads continue updating the counters.</p>
-     *
-     * <p><b>Usage:</b></p>
-     * Use this method when you need to log, report, or analyze the current metrics.
-     * <pre>
-     * RequestMetric.RequestMetricSnapshot snapshot = metrics.getSnapshot();
-     * System.out.println("Total Requests: " + snapshot.getTotalRequests());
-     * System.out.println("Retries: " + snapshot.getRetries());
-     * System.out.println("Failures: " + snapshot.getFailures());
-     * </pre>
-     * </p>
-     *
-     * <p><b>Thread Safety:</b></p>
-     * This method is thread-safe. Concurrent calls from multiple threads will
-     * each get an accurate snapshot of the current state (though different
-     * threads may see slightly different values depending on timing).</p>
-     *
-     * <p><b>Performance:</b></p>
-     * Creating a snapshot is very efficient - it simply reads the current
-     * values from the atomic counters and wraps them in an immutable object.
-     * It does not block or affect the atomic counters in any way.</p>
-     *
-     * @return An immutable RequestMetricSnapshot containing current counter values
-     * @see RequestMetricSnapshot
-     */
+     /**
+      * Creates an immutable snapshot of the current metric values.
+      *
+      * <p><b>Purpose:</b> Returns a snapshot (RequestMetricSnapshot) containing the current values
+      * of all counters at the moment this method is called. The snapshot
+      * is immutable, providing a consistent view of metrics that won't change
+      * even if other threads continue updating the counters.</p>
+      *
+      * <p><b>Usage:</b> Use this method when you need to log, report, or analyze the current metrics.</p>
+      * <pre>
+      * RequestMetric.RequestMetricSnapshot snapshot = metrics.getSnapshot();
+      * System.out.println("Total Requests: " + snapshot.getTotalRequests());
+      * System.out.println("Retries: " + snapshot.getRetries());
+      * System.out.println("Failures: " + snapshot.getFailures());
+      * </pre>
+      *
+      * <p><b>Thread Safety:</b> This method is thread-safe. Concurrent calls from multiple threads will
+      * each get an accurate snapshot of the current state (though different
+      * threads may see slightly different values depending on timing).</p>
+      *
+      * <p><b>Performance:</b> Creating a snapshot is very efficient - it simply reads the current
+      * values from the atomic counters and wraps them in an immutable object.
+      * It does not block or affect the atomic counters in any way.</p>
+      *
+      * @return An immutable RequestMetricSnapshot containing current counter values
+      * @see RequestMetricSnapshot
+      */
     public RequestMetricSnapshot getSnapshot() {
         return new RequestMetricSnapshot(inFlight.get(), totalRequests.get(), retries.get(), failures.get());
     }
 
-    /**
-     * Immutable snapshot of request metrics at a specific point in time.
-     *
-     * <p><b>Overview:</b></p>
-     * RequestMetricSnapshot represents a frozen view of the metrics collected
-     * by a RequestMetric instance. Once created, the values never change,
-     * making it safe to share between threads and use for reports or comparisons.</p>
-     *
-     * <p><b>Properties:</b></p>
-     * <ul>
-     *   <li><b>Immutable:</b> All fields are final and publicly read-only via Lombok @Getter</li>
-     *   <li><b>Thread-Safe:</b> Can be safely shared and accessed from multiple threads</li>
-     *   <li><b>Lightweight:</b> Contains only three long values</li>
-     * </ul>
-     *
-     * <p><b>Derived Metrics:</b></p>
-     * From a snapshot, you can calculate:
-     * <ul>
-     *   <li><b>Successful Requests:</b> totalRequests - failures</li>
-     *   <li><b>Success Rate:</b> (totalRequests - failures) / totalRequests * 100 %</li>
-     *   <li><b>Failure Rate:</b> failures / totalRequests * 100 %</li>
-     *   <li><b>Retry Rate:</b> retries / totalRequests * 100 %</li>
-     * </ul>
-     * </p>
-     *
-     * @see RequestMetric
-     */
+     /**
+      * Immutable snapshot of request metrics at a specific point in time.
+      *
+      * <p><b>Overview:</b> RequestMetricSnapshot represents a frozen view of the metrics collected
+      * by a RequestMetric instance. Once created, the values never change,
+      * making it safe to share between threads and use for reports or comparisons.</p>
+      *
+      * <p><b>Properties:</b></p>
+      * <ul>
+      *   <li><b>Immutable:</b> All fields are final and publicly read-only via Lombok @Getter</li>
+      *   <li><b>Thread-Safe:</b> Can be safely shared and accessed from multiple threads</li>
+      *   <li><b>Lightweight:</b> Contains only three long values</li>
+      * </ul>
+      *
+      * <p><b>Derived Metrics:</b> From a snapshot, you can calculate:</p>
+      * <ul>
+      *   <li><b>Successful Requests:</b> totalRequests - failures</li>
+      *   <li><b>Success Rate:</b> (totalRequests - failures) / totalRequests * 100 %</li>
+      *   <li><b>Failure Rate:</b> failures / totalRequests * 100 %</li>
+      *   <li><b>Retry Rate:</b> retries / totalRequests * 100 %</li>
+      * </ul>
+      *
+      * @see RequestMetric
+      */
     @Getter
     @AllArgsConstructor
     public static class RequestMetricSnapshot {

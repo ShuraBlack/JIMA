@@ -1221,56 +1221,59 @@ public class Requester {
      *   <li>Non-blocking - returns futures immediately while background processing continues</li>
      * </ul>
      *
-     * <p><b>Example 1 - Sequential with delays using Response requests:</b></p>
-     * <pre>
-     * RequestGroup group = new RequestGroup()
-     *     .withDelay(1000)                      // 1-second delay between requests
-     *     .withMinTokensAllowed(15)             // Keep minimum 15 tokens
-     *     .addResponseRequest(() -> Requester.inspectItem("id1"))
-     *     .addResponseRequest(() -> Requester.inspectItem("id2"))
-     *     .addResponseRequest(() -> Requester.inspectItem("id3"));
+      * <p><b>Example 1 - Sequential with delays using Response requests:</b></p>
+      * <pre>{@code
+      * RequestGroup group = new RequestGroup()
+      *     .withDelay(1000)                      // 1-second delay between requests
+      *     .withMinTokensAllowed(15)             // Keep minimum 15 tokens
+      *     .addResponseRequest(() -> Requester.inspectItem("id1"))
+      *     .addResponseRequest(() -> Requester.inspectItem("id2"))
+      *     .addResponseRequest(() -> Requester.inspectItem("id3"));
+      *
+      * List<CompletableFuture<?>> futures = Requester.executeRequestGroup(group);
+      * group.awaitCompletion(5, TimeUnit.MINUTES);
+      * }
+      * </pre>
      *
-     * List&lt;CompletableFuture&lt;?&gt;&gt; futures = Requester.executeRequestGroup(group);
-     * group.awaitCompletion(5, TimeUnit.MINUTES);
-     * </pre>
+      * <p><b>Example 2 - Batch execution with Response requests:</b></p>
+      * <pre>{@code
+      * RequestGroup group = new RequestGroup()
+      *     .withBatchSize(10)                     // Execute 10 requests at a time
+      *     .withWaitMsBetweenBatches(5000)        // Wait 5 seconds between batches
+      *     .withMinTokensAllowed(5)               // Ensure 5 tokens available before each request
+      *     .withDelay(500);                       // 500ms delay within batch
+      *
+      * for (int i = 0; i < 100; i++) {
+      *     group.addResponseRequest(() -> Requester.inspectItem("id" + i));
+      * }
+      * // Execution flow:
+      * // - Execute requests 1-10 (with 500ms delays between)
+      * // - Wait 5 seconds
+      * // - Execute requests 11-20 (with 500ms delays between)
+      * // - Wait 5 seconds
+      * // - ... and so on
+      *
+      * List<CompletableFuture<?>> futures = Requester.executeRequestGroup(group);
+      * group.awaitCompletion(10, TimeUnit.MINUTES);
+      * }
+      * </pre>
      *
-     * <p><b>Example 2 - Batch execution with Response requests:</b></p>
-     * <pre>
-     * RequestGroup group = new RequestGroup()
-     *     .withBatchSize(10)                     // Execute 10 requests at a time
-     *     .withWaitMsBetweenBatches(5000)        // Wait 5 seconds between batches
-     *     .withMinTokensAllowed(5)               // Ensure 5 tokens available before each request
-     *     .withDelay(500);                       // 500ms delay within batch
-     *
-     * for (int i = 0; i < 100; i++) {
-     *     group.addResponseRequest(() -> Requester.inspectItem("id" + i));
-     * }
-     * // Execution flow:
-     * // - Execute requests 1-10 (with 500ms delays between)
-     * // - Wait 5 seconds
-     * // - Execute requests 11-20 (with 500ms delays between)
-     * // - Wait 5 seconds
-     * // - ... and so on
-     *
-     * List&lt;CompletableFuture&lt;?&gt;&gt; futures = Requester.executeRequestGroup(group);
-     * group.awaitCompletion(10, TimeUnit.MINUTES);
-     * </pre>
-     *
-     * <p><b>Example 3 - Batch execution with token recovery stalling:</b></p>
-     * <pre>
-     * RequestGroup group = new RequestGroup()
-     *     .withBatchSize(15)                     // Execute 15 requests in each batch
-     *     .withWaitMsBetweenBatches(0)           // No explicit wait (relies on token stalling)
-     *     .withMinTokensAllowed(10);             // Stall next request if tokens &lt; 10
-     *
-     * for (int i = 0; i < 100; i++) {
-     *     group.addResponseRequest(() -> Requester.getCharacter("charId" + i));
-     * }
-     * // Execution flow:
-     * // - Execute batch 1 (requests 1-15)
-     * // - If tokens drop below 10 before batch 2, stall until tokens recover
-     * // - Resume with batch 2, and so on
-     * </pre>
+      * <p><b>Example 3 - Batch execution with token recovery stalling:</b></p>
+      * <pre>{@code
+      * RequestGroup group = new RequestGroup()
+      *     .withBatchSize(15)                     // Execute 15 requests in each batch
+      *     .withWaitMsBetweenBatches(0)           // No explicit wait (relies on token stalling)
+      *     .withMinTokensAllowed(10);             // Stall next request if tokens < 10
+      *
+      * for (int i = 0; i < 100; i++) {
+      *     group.addResponseRequest(() -> Requester.getCharacter("charId" + i));
+      * }
+      * // Execution flow:
+      * // - Execute batch 1 (requests 1-15)
+      * // - If tokens drop below 10 before batch 2, stall until tokens recover
+      * // - Resume with batch 2, and so on
+      * }
+      * </pre>
      *
      * @param group The RequestGroup containing requests to execute
      * @return A list of CompletableFutures for each request in the group.
@@ -1300,25 +1303,26 @@ public class Requester {
      *   <li>Returns false if timeout is exceeded (rather than throwing)</li>
      * </ul>
      *
-     * <p><b>Example - Simple blocking execution:</b></p>
-     * <pre>
-     * RequestGroup group = new RequestGroup()
-     *     .withBatchSize(10)
-     *     .withWaitMsBetweenBatches(5000)
-     *     .withMinTokensAllowed(10);
-     *
-     * for (int i = 0; i < 100; i++) {
-     *     group.addResponseRequest(() -> Requester.inspectItem("id" + i));
-     * }
-     *
-     * // Blocks until all 100 requests complete (or 10 minutes pass)
-     * boolean success = Requester.executeRequestGroupBlocking(group);
-     * if (success) {
-     *     System.out.println("All requests completed!");
-     * } else {
-     *     System.err.println("Timeout: requests did not complete within 10 minutes");
-     * }
-     * </pre>
+      * <p><b>Example - Simple blocking execution:</b></p>
+      * <pre>{@code
+      * RequestGroup group = new RequestGroup()
+      *     .withBatchSize(10)
+      *     .withWaitMsBetweenBatches(5000)
+      *     .withMinTokensAllowed(10);
+      *
+      * for (int i = 0; i < 100; i++) {
+      *     group.addResponseRequest(() -> Requester.inspectItem("id" + i));
+      * }
+      *
+      * // Blocks until all 100 requests complete (or 10 minutes pass)
+      * boolean success = Requester.executeRequestGroupBlocking(group);
+      * if (success) {
+      *     System.out.println("All requests completed!");
+      * } else {
+      *     System.err.println("Timeout: requests did not complete within 10 minutes");
+      * }
+      * }
+      * </pre>
      *
      * @param group The RequestGroup containing requests to execute
      * @return true if all requests completed within 10 minutes,
@@ -1348,13 +1352,13 @@ public class Requester {
      *   <li>Throws InterruptedException if the waiting thread is interrupted</li>
      * </ul>
      *
-     * <p><b>Example:</b></p>
-     * <pre>
-     * RequestGroup group = new RequestGroup()
-     *     .withBatchSize(20)
-     *     .withWaitMsBetweenBatches(2000)
-     *     .addResponseRequest(() -> Requester.getWorldBosses())
-     *     .addResponseRequest(() -> Requester.getDungeons());
+      * <p><b>Example:</b></p>
+      * <pre>
+      * RequestGroup group = new RequestGroup()
+      *     .withBatchSize(20)
+      *     .withWaitMsBetweenBatches(2000)
+      *     .addResponseRequest(() -&gt; Requester.getWorldBosses())
+      *     .addResponseRequest(() -&gt; Requester.getDungeons());
      *
      * try {
      *     // Wait up to 5 minutes for completion

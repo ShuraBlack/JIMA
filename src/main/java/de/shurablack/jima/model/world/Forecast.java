@@ -7,7 +7,7 @@ import java.util.List;
 /**
  * Represents a daily weather forecast for a specific location.
  *
- * @see Location#getForecast() For accessing forecasts
+ * @see Location For the location containing forecasts
  * @see Weather For individual weather condition details
  */
 @AllArgsConstructor

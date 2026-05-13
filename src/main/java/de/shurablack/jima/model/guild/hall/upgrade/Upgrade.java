@@ -16,10 +16,10 @@ import java.time.LocalDateTime;
  *   <li><b>Completed:</b> Finished and providing benefits to the guild</li>
  * </ul>
  *
- * <p><b>Repair and Maintenance:</b></p>
- * Completed upgrades may require repair if their condition drops. The {@code repair}
- * field tracks maintenance status.
- * </p>
+ * <p><b>Repair and Maintenance:</b> Completed upgrades may require repair if their condition drops.
+ * The {@code repair} field tracks maintenance status.</p>
+ *
+ * <p><b>Next Upgrade:</b> If {@code availableUpgrade} is present, the upgrade can be improved to a newer version.</p>
  *
  * @see Status For upgrade status information
  * @see Repair For repair and condition information
