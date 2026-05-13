@@ -19,28 +19,30 @@ import java.util.function.Supplier;
  *   <li>Preserves request order and returns results in order</li>
  * </ul>
  *
- * <p><b>Example - Sequential with delays:</b></p>
- * <pre>
- * RequestGroup group = new RequestGroup()
- *     .withDelay(1000)
- *     .withMinTokensAllowed(15)
- *     .addRequest(() -> Requester.inspectItem("id1"))
- *     .addRequest(() -> Requester.inspectItem("id2"))
- *     .addRequest(() -> Requester.inspectItem("id3"));
- * </pre>
- *
- * <p><b>Example - Batch execution:</b></p>
- * <pre>
- * RequestGroup group = new RequestGroup()
- *     .withBatchSize(10)                      // Execute 10 at a time
- *     .withWaitMsBetweenBatches(5000)         // Wait 5 seconds between batches
- *     .withMinTokensAllowed(5);               // Ensure 5 tokens available before each request
- * 
- * for (int i = 0; i < 100; i++) {
- *     group.addRequest(() -> Requester.inspectItem("id" + i));
- * }
- * // This will execute: 10 requests, wait 5s, 10 requests, wait 5s, etc.
- * </pre>
+     * <p><b>Example - Sequential with delays:</b></p>
+     * <pre>{@code
+     * RequestGroup group = new RequestGroup()
+     *     .withDelay(1000)
+     *     .withMinTokensAllowed(15)
+     *     .addRequest(() -> Requester.inspectItem("id1"))
+     *     .addRequest(() -> Requester.inspectItem("id2"))
+     *     .addRequest(() -> Requester.inspectItem("id3"));
+     * }
+     * </pre>
+     *
+     * <p><b>Example - Batch execution:</b></p>
+     * <pre>{@code
+     * RequestGroup group = new RequestGroup()
+     *     .withBatchSize(10)                      // Execute 10 at a time
+     *     .withWaitMsBetweenBatches(5000)         // Wait 5 seconds between batches
+     *     .withMinTokensAllowed(5);               // Ensure 5 tokens available before each request
+     *
+     * for (int i = 0; i < 100; i++) {
+     *     group.addRequest(() -> Requester.inspectItem("id" + i));
+     * }
+     * // This will execute: 10 requests, wait 5s, 10 requests, wait 5s, etc.
+     * }
+     * </pre>
  */
 public class RequestGroup {
 
@@ -85,7 +87,7 @@ public class RequestGroup {
      *
      * <p><b>Default:</b> Integer.MAX_VALUE (no batching - all requests are one batch)</p>
      *
-     * @param batchSize Number of requests to execute before waiting (must be > 0)
+      * @param batchSize Number of requests to execute before waiting (must be &gt; 0)
      * @return This RequestGroup for method chaining
      * @throws IllegalArgumentException if batchSize is less than 1
      */
@@ -135,20 +137,21 @@ public class RequestGroup {
         return this;
     }
 
-    /**
-     * Adds a blocking response-based request to this group.
-     * Useful for wrapping standard Requester methods that return Response<T>.
-     *
-     * <p><b>Example:</b></p>
-     * <pre>
-     * group.addResponseRequest(() -> Requester.getAuthentication())
-     *      .addResponseRequest(() -> Requester.getWorldBosses())
-     *      .addResponseRequest(() -> Requester.getDungeons());
-     * </pre>
-     *
-     * @param requestSupplier A supplier that produces a Response when called
-     * @return This RequestGroup for method chaining
-     */
+     /**
+      * Adds a blocking response-based request to this group.
+      * Useful for wrapping standard Requester methods that return {@code Response<T>}.
+      *
+      * <p><b>Example:</b></p>
+      * <pre>{@code
+      * group.addResponseRequest(() -> Requester.getAuthentication())
+      *      .addResponseRequest(() -> Requester.getWorldBosses())
+      *      .addResponseRequest(() -> Requester.getDungeons());
+      * }
+      * </pre>
+      *
+      * @param requestSupplier A supplier that produces a Response when called
+      * @return This RequestGroup for method chaining
+      */
     public RequestGroup addResponseRequest(Supplier<Response<?>> requestSupplier) {
         // Wrap the Response-based supplier in a CompletableFuture
         this.requests.add(() -> CompletableFuture.completedFuture(requestSupplier.get()));
@@ -166,13 +169,13 @@ public class RequestGroup {
         return this;
     }
 
-    /**
-     * Adds multiple blocking response-based requests to this group.
-     * Useful for wrapping multiple standard Requester methods that return Response<T>.
-     *
-     * @param requestSuppliers Collection of response-based request suppliers
-     * @return This RequestGroup for method chaining
-     */
+     /**
+      * Adds multiple blocking response-based requests to this group.
+      * Useful for wrapping multiple standard Requester methods that return {@code Response<T>}.
+      *
+      * @param requestSuppliers Collection of response-based request suppliers
+      * @return This RequestGroup for method chaining
+      */
     public RequestGroup addResponseRequests(Collection<Supplier<Response<?>>> requestSuppliers) {
         // Wrap each Response-based supplier in a CompletableFuture
         requestSuppliers.forEach(supplier -> 

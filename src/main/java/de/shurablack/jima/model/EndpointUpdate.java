@@ -50,33 +50,31 @@ public abstract class EndpointUpdate {
      */
     private LocalDateTime endpointUpdatesAt;
 
-    /**
-     * Checks whether the endpoint update time has already passed (expired) relative to the
-     * provided reference time {@code now}.
-     *
-     * <p>
-     * Return values:
-     * <ul>
-     *   <li>{@code true} - if {@link #endpointUpdatesAt} is not {@code null}
-     *       and {@code endpointUpdatesAt.isBefore(now)} returns true (the time
-     *       is before the reference time).</li>
-     *   <li>{@code false} - if {@link #endpointUpdatesAt} is {@code null}
-     *       (no time set) or {@code endpointUpdatesAt} is equal to or after
-     *       {@code now} (not yet expired).</li>
-     * </ul>
-     * </p>
-     *
-     * @param now the reference time to compare against; should never be {@code null}.
-     *            If {@code now} is {@code null}, a {@link NullPointerException} may be thrown
-     *            because the {@code LocalDateTime#isBefore} method will be invoked.
-     * @return {@code true} if an update time is set and already before {@code now};
-     *         {@code false} otherwise.
-     *
-     * @implNote This method does not account for timezone adjustments — use {@link java.time.ZonedDateTime}
-     *           or {@link java.time.OffsetDateTime} if timezone correctness is required.
-     *
-     * @see LocalDateTime#isBefore(ChronoLocalDateTime) (LocalDateTime)
-     */
+     /**
+      * Checks whether the endpoint update time has already passed (expired) relative to the
+      * provided reference time {@code now}.
+      *
+      * <p>Return values:</p>
+      * <ul>
+      *   <li>{@code true} - if {@link #endpointUpdatesAt} is not {@code null}
+      *       and {@code endpointUpdatesAt.isBefore(now)} returns true (the time
+      *       is before the reference time).</li>
+      *   <li>{@code false} - if {@link #endpointUpdatesAt} is {@code null}
+      *       (no time set) or {@code endpointUpdatesAt} is equal to or after
+      *       {@code now} (not yet expired).</li>
+      * </ul>
+      *
+      * @param now the reference time to compare against; should never be {@code null}.
+      *            If {@code now} is {@code null}, a {@link NullPointerException} may be thrown
+      *            because the {@code LocalDateTime#isBefore} method will be invoked.
+      * @return {@code true} if an update time is set and already before {@code now};
+      *         {@code false} otherwise.
+      *
+      * <p><b>Note:</b> This method does not account for timezone adjustments — use {@link java.time.ZonedDateTime}
+      * or {@link java.time.OffsetDateTime} if timezone correctness is required.</p>
+      *
+      * @see LocalDateTime#isBefore(ChronoLocalDateTime)
+      */
     public boolean isExpired(LocalDateTime now) {
         return endpointUpdatesAt != null && endpointUpdatesAt.isBefore(now);
     }

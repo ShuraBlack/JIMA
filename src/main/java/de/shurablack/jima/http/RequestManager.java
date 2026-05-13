@@ -6,8 +6,10 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import de.shurablack.jima.http.serialization.ApiObjectMapper;
 import de.shurablack.jima.model.EndpointUpdate;
-import de.shurablack.jima.util.Configurator;
-import de.shurablack.jima.util.TokenStore;
+import de.shurablack.jima.model.auth.Authentication;
+import de.shurablack.jima.util.AppSettings;
+import de.shurablack.jima.util.Token;
+import de.shurablack.jima.util.TokenPool;
 import lombok.Getter;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
@@ -21,93 +23,300 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.AbstractMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.*;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /**
- * Singleton class responsible for handling HTTP requests with rate-limiting and queuing.
- * It provides capability to enqueue requests, process them asynchronously, and handle rate limits.
+ * Singleton class responsible for managing all HTTP requests with rate-limiting and queuing.
+ *
+ * <p><b>Overview:</b></p>
+ * RequestManager is the central hub for all API communication in JIMA. It handles:
+ * <ul>
+ *   <li>HTTP requests via Java's HttpClient</li>
+ *   <li>Token acquisition and rotation via TokenPool</li>
+ *   <li>Rate limit tracking from API response headers</li>
+ *   <li>Automatic retry on rate limit (HTTP 429) responses</li>
+ *   <li>In-flight request deduplication to prevent duplicate requests</li>
+ *   <li>Optional endpoint response caching with expiration tracking</li>
+ *   <li>Batch request processing with configurable delays and token requirements</li>
+ *   <li>Graceful shutdown coordination</li>
+ * </ul>
+ *
+ * <p><b>Key Features:</b></p>
+ * <ul>
+ *   <li><b>Token Management:</b> Manages a TokenPool for automatic token rotation and rate-limit awareness</li>
+ *   <li><b>Request Throttling:</b> Uses tokens to throttle requests and respect rate limits</li>
+ *   <li><b>Automatic Retries:</b> Schedules retries when rate limits are exceeded (HTTP 429)</li>
+ *   <li><b>In-Flight Deduplication:</b> Prevents sending duplicate requests for the same URL simultaneously</li>
+ *   <li><b>Optional Caching:</b> Can cache endpoint responses with expiration time tracking</li>
+ *   <li><b>Batch Processing:</b> Processes batches of requests with configurable delays</li>
+ *   <li><b>Async/Sync Support:</b> Supports both asynchronous (CompletableFuture) and synchronous request patterns</li>
+ *   <li><b>Shutdown Handling:</b> Gracefully handles application shutdown with request cancellation</li>
+ * </ul>
+ *
+ * <p><b>Request Flow:</b></p>
+ * <ol>
+ *   <li>Request enters via {@link #enqueueRequest(Endpoint, Map, Map, Class)} or related methods</li>
+ *   <li>Check cache if enabled; return cached data if available and not expired</li>
+ *   <li>Check if identical request is already in-flight; if so, return existing future</li>
+ *   <li>Acquire a token from TokenPool (waits if all tokens exhausted)</li>
+ *   <li>Send HTTP request with token in Authorization header</li>
+ *   <li>Handle response:
+ *       <ul>
+ *           <li>If HTTP 429 (rate limited): Schedule retry after reset time</li>
+ *           <li>If HTTP 2xx (success): Cache result (if enabled), return data</li>
+ *           <li>If HTTP error: Return error response</li>
+ *       </ul>
+ *   </li>
+ *   <li>Update token state based on rate limit response headers</li>
+ *   <li>Remove from in-flight map when complete</li>
+ * </ol>
+ *
+ * <p><b>Thread Safety:</b></p>
+ * This class is thread-safe:
+ * <ul>
+ *   <li>Uses ConcurrentHashMap for in-flight requests tracking</li>
+ *   <li>TokenPool is thread-safe internally</li>
+ *   <li>ExecutorServices handle concurrent request processing</li>
+ *   <li>All shared state is either immutable or protected by concurrent collections</li>
+ * </ul>
+ *
+ * <p><b>Example Usage:</b></p>
+ * <pre>
+ * // Get singleton instance (initialized automatically)
+ * RequestManager manager = RequestManager.getInstance();
+ *
+ * // Enqueue a simple request
+ * CompletableFuture&lt;Response&lt;WorldBosses&gt;&gt; future = manager.enqueueRequest(
+ *     Endpoint.WORLD_BOSSES,
+ *     null,
+ *     null,
+ *     WorldBosses.class
+ * );
+ *
+ * // Block until result
+ * Response&lt;WorldBosses&gt; response = future.join();
+ *
+ * // Configure logging
+ * RequestManager.setLogLevel(Level.DEBUG);
+ *
+ * // Enable endpoint caching with stats
+ * RequestManager.enableEndpointCaching(true);
+ *
+ * // Check cache statistics
+ * CacheStats stats = RequestManager.getCacheRecords();
+ * System.out.println("Cache hit rate: " + stats.hitRate());
+ * </pre>
+ *
+ * @see TokenPool
+ * @see Token
+ * @see Response
+ * @see RequestGroup
  */
 public class RequestManager {
 
+    /** Logger for RequestManager operations and diagnostics. */
     private static final Logger LOGGER = LogManager.getLogger(RequestManager.class);
+
+    /** Singleton instance of RequestManager. */
     private static final RequestManager INSTANCE = new RequestManager();
 
+    /** Pool of tokens for automatic rotation and rate-limit management. */
+    private final TokenPool tokenPool;
+
+    /** Flag indicating if application is shutting down. Uses volatile for visibility across threads. */
     private volatile boolean shuttingDown = false;
-    private final Set<CompletableFuture<?>> pendingRequests = ConcurrentHashMap.newKeySet();
+
+    /** Queue for incoming RequestGroup objects awaiting batch processing. */
     private final BlockingQueue<RequestGroup> groupQueue = new LinkedBlockingQueue<>();
 
+    /** Header name for rate limit remaining requests. */
     private static final String X_RATE_LIMIT_REMAINING = "X-RateLimit-Remaining";
+
+    /** Header name for rate limit reset time. */
     private static final String X_RATE_LIMIT_RESET = "X-RateLimit-Reset";
 
+    /** HTTP client for making requests (thread-safe, reusable connection pool). */
     private final HttpClient client = HttpClient.newHttpClient();
-    private static Cache<String, EndpointUpdate> ENDPOINT_CACHE;
-    private static final ConcurrentHashMap<String, CompletableFuture<?>> IN_FLIGHT = new ConcurrentHashMap<>();
 
+    /** Cache for endpoint responses with expiration tracking. Null if caching not enabled. */
+    private static Cache<String, EndpointUpdate> ENDPOINT_CACHE;
+
+    /** Jackson ObjectMapper configured for API responses and authentication. */
     @Getter
     private final ObjectMapper mapper = new ApiObjectMapper();
-    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+
+    /** Request metrics collector for tracking request counts and failures */
+    private final RequestMetric metric = new RequestMetric();
+
+    /** Scheduler for delayed operations (e.g., rate limit retries). */
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(
+            1,
+            r -> {
+                Thread t = new Thread(r, "JIMA-Scheduler");
+                t.setDaemon(true);
+                return t;
+            }
+    );
+
+    /** Executor for processing request groups asynchronously. */
     private final ExecutorService groupExecutor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "JIMA-RequestGroupProcessor");
         t.setDaemon(true);
         return t;
     });
 
-    private long usageLimit = 0;
-
     /**
-     * Private constructor to enforce singleton pattern.
-     * Initializes the Configurator and sets up a shutdown hook to cleanly stop the scheduler.
+     * Private constructor for singleton pattern.
+     *
+     * <p><b>Initialization Steps:</b></p>
+     * <ol>
+     *   <li>Initialize AppSettings to load configuration</li>
+     *   <li>Start RequestGroup processor thread</li>
+     *   <li>Register shutdown hook for graceful cleanup</li>
+     *   <li>Initialize TokenPool</li>
+     *   <li>Bootstrap tokens (load, authenticate, register)</li>
+     * </ol>
      */
     private RequestManager() {
-        Configurator.getInstance(); // Ensure Configurator is initialized
-        
-        // Start request group processor
+        AppSettings.createInstance();
+        this.tokenPool = new TokenPool();
+
         groupExecutor.execute(this::processRequestGroups);
-        
+
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             LOGGER.info("Shutdown detected – stopping RequestManager...");
             shuttingDown = true;
 
-            // Stop group executor
             groupExecutor.shutdownNow();
-            
-            // Scheduler stoppen
+
             scheduler.shutdownNow();
 
-            // Alle offenen Requests abbrechen
-            pendingRequests.forEach(f -> f.completeExceptionally(
-                    new CancellationException("Application shutting down")
-            ));
-            pendingRequests.clear();
+            tokenPool.shutdown();
         }));
+
+        bootstrap();
+    }
+
+    private void bootstrap() {
+        LOGGER.info("Loading tokens for RequestManager...");
+
+        List<Token> tokens = AppSettings.getTokens().stream()
+                .filter(line -> !line.isBlank())
+                .map(line -> new Token(line.trim())).collect(Collectors.toList());
+
+        LOGGER.info("Starting authentication for {} token(s)", tokens.size());
+
+        for (Token token : tokens) {
+            authenticateToken(token);
+        }
+
+        LOGGER.info("All tokens authenticated and added to TokenPool");
     }
 
     /**
-     * Retrieves the singleton instance of the RequestManager.
+     * Authenticates a single token by making an authentication request.
      *
-     * @return The singleton instance of RequestManager.
+     * <p><b>Process:</b></p>
+     * <ol>
+     *   <li>Build authentication request with token</li>
+     *   <li>Send HTTP request to authenticate endpoint</li>
+     *   <li>Extract Authentication response and rate limit info</li>
+     *   <li>Update token with rate limit maximum and current state</li>
+     *   <li>Register token with TokenPool</li>
+     * </ol>
+     *
+     * <p><b>Error Handling:</b></p>
+     * Different error scenarios:
+     * <ul>
+     *   <li>HTTP error: Log error status and message</li>
+     *   <li>Parse error: Log parsing exception</li>
+     *   <li>Network error: Log exception</li>
+     * </ul>
+     *
+     * @param token The Token object to authenticate
+     */
+    private void authenticateToken(Token token) {
+        try {
+            HttpRequest request = buildRequest(Endpoint.AUTHENTICATE.getPath(), token.getKey());
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+            if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                try {
+                    Authentication auth = mapper.readValue(response.body(), Authentication.class);
+                    token.updateMax(auth.getRateLimit());
+
+                    int remaining = response.headers().firstValue(X_RATE_LIMIT_REMAINING).flatMap(v -> safeParseHeader(v, Integer.class)).orElse(-1);
+                    long reset = response.headers().firstValue(X_RATE_LIMIT_RESET).flatMap(v -> safeParseHeader(v, Long.class)).orElse(Instant.now().getEpochSecond() + 60);
+                    token.updateFromResponse(remaining, reset);
+                    token.setScopes(auth.getScopes());
+
+                    tokenPool.initializeToken(token);
+                    LOGGER.info("Token {} authenticated successfully with rate limit: {}", token.getMaskedKey(), auth.getRateLimit());
+                } catch (Exception e) {
+                    LOGGER.error("Error parsing authentication response for token {}: {}", token.getMaskedKey(), e.getMessage(), e);
+                }
+            } else {
+                LOGGER.error("Failed to authenticate token {}: HTTP {} - {}", token.getMaskedKey(), response.statusCode(), response.body());
+            }
+        } catch (Exception e) {
+            LOGGER.error("Exception authenticating token {}: {}", token.getMaskedKey(), e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Gets the singleton RequestManager instance.
+     *
+     * @return The RequestManager singleton instance
      */
     public static RequestManager getInstance() {
         return INSTANCE;
     }
 
     /**
-     * Sets the log level for the RequestManager.
+     * Sets the logging level for RequestManager and related classes.
      *
-     * @param level The log level to set (e.g., DEBUG, INFO, WARN, ERROR).
+     * <p>Useful for debugging request flow and rate limit handling.</p>
+     *
+     * @param level The Log4j2 Level (e.g., DEBUG, INFO, WARN, ERROR)
+     * @see org.apache.logging.log4j.Level
      */
     public static void setLogLevel(Level level) {
         org.apache.logging.log4j.core.config.Configurator.setLevel(RequestManager.class, level);
         LogManager.getLogger(LogManager.class).info("Log level set to {}", level);
     }
 
-
     /**
-     * Enables endpoint caching with optional statistics recording.
+     * Enables endpoint response caching with optional statistics tracking.
      *
-     * @param recordStats If true, cache statistics (hits, misses, evictions) are recorded for monitoring.
+     * <p><b>Behavior:</b></p>
+     * <ul>
+     *   <li>If recordStats=true: Cache records hit/miss statistics accessible via getCacheRecords()</li>
+     *   <li>If recordStats=false: Cache operates without recording statistics (lower overhead)</li>
+     * </ul>
+     *
+     * <p><b>Cache Expiration:</b></p>
+     * Cached responses include expiration time tracking. Expired entries are not returned
+     * even if still in cache; they are treated as cache misses.
+     *
+     * <p><b>Example:</b></p>
+     * <pre>
+     * // Enable caching with statistics
+     * RequestManager.enableEndpointCaching(true);
+     *
+     * // Later, check cache statistics
+     * CacheStats stats = RequestManager.getCacheRecords();
+     * System.out.println("Hit rate: " + stats.hitRate());
+     * System.out.println("Hits: " + stats.hitCount());
+     * System.out.println("Misses: " + stats.missCount());
+     * </pre>
+     *
+     * @param recordStats Whether to record cache hit/miss statistics
      */
     public static void enableEndpointCaching(boolean recordStats) {
          ENDPOINT_CACHE = recordStats
@@ -116,10 +325,27 @@ public class RequestManager {
     }
 
     /**
-     * Retrieves cache statistics for the endpoint cache.
+     * Retrieve a snapshot of the current request metrics
+     * @return The unmodifiable metric snapshot
+     */
+    public RequestMetric.RequestMetricSnapshot getRequestMetricSnapshot() {
+        return metric.getSnapshot();
+    }
+
+    /**
+     * Gets cache statistics if caching is enabled.
      *
-     * @return The CacheStats containing hit counts, miss counts, and eviction data.
-     * @throws IllegalStateException if endpoint caching has not been enabled via {@link #enableEndpointCaching(boolean)}.
+     * <p><b>Statistics Include:</b></p>
+     * <ul>
+     *   <li>Hit count: Number of successful cache lookups</li>
+     *   <li>Miss count: Number of cache lookups that failed</li>
+     *   <li>Hit rate: Percentage of lookups that were hits</li>
+     *   <li>Eviction count: Number of entries evicted from cache</li>
+     *   <li>Load count: Number of cache loads (direct misses)</li>
+     * </ul>
+     *
+     * @return CacheStats object with statistics
+     * @throws IllegalStateException If endpoint caching has not been enabled
      */
     public static CacheStats getCacheRecords() {
         if (ENDPOINT_CACHE == null) {
@@ -130,13 +356,20 @@ public class RequestManager {
     }
 
     /**
-     * Retrieves cached endpoint data if available and not expired.
-     * Returns null if caching is disabled, type is incompatible, cache miss occurs, or data is expired.
+     * Attempts to retrieve cached data for a URL if caching is enabled.
      *
-     * @param url  The cache key (endpoint URL).
-     * @param type The expected response data type.
-     * @param <T>  The type of the cached data.
-     * @return The cached data if valid and not expired, otherwise null.
+     * <p><b>Conditions for Cache Hit:</b></p>
+     * <ol>
+     *   <li>Caching must be enabled (ENDPOINT_CACHE != null)</li>
+     *   <li>Response type must be or extend EndpointUpdate</li>
+     *   <li>Cached entry must exist for the URL</li>
+     *   <li>Cached entry must not be expired</li>
+     * </ol>
+     *
+     * @param <T> The response data type
+     * @param url The full request URL
+     * @param type The expected response class type
+     * @return The cached data if available and valid, null otherwise
      */
     private <T> T getCacheData(String url, Class<T> type) {
         if (ENDPOINT_CACHE == null) {
@@ -156,67 +389,87 @@ public class RequestManager {
     }
 
     /**
-     * Sets the usage limit for requests.
-     * The usage limit must be a non-negative value.
+     * Attempts to insert a new cached data for a URL if caching is enabled.
      *
-     * @param minimum The minimum number of requests allowed to be left.
-     * @throws IllegalArgumentException if the minimum is negative.
+     * @param url The full request URL
+     * @param data The data to be stored
+     * @param type The type of the given data
+     * @param <T> The data type
      */
-    public void setUsageLimit(long minimum) {
-        if (minimum < 0) {
-            throw new IllegalArgumentException("Usage limit must be non-negative");
+    private <T> void saveCacheData(String url, T data, Class<T> type) {
+        if (ENDPOINT_CACHE == null) {
+            return;
         }
-        this.usageLimit = minimum;
+
+        if  (!EndpointUpdate.class.isAssignableFrom(type)) {
+            return;
+        }
+
+        EndpointUpdate value = ENDPOINT_CACHE.getIfPresent(url);
+        if (value != null && !value.isExpired(LocalDateTime.now())) {
+            return;
+        }
+
+        ENDPOINT_CACHE.put(url, (EndpointUpdate) data);
     }
 
     /**
-     * Enqueues an HTTP request to the specified endpoint with given query parameters and request parameters.
+     * Enqueues a request without specifying a particular token.
      *
-     * @param endpoint  The API endpoint to send the request to.
-     * @param query     A map of query parameters to be included in the URL.
-     * @param parameter A map of request parameters to be included in the URL.
-     * @param type      The class type of the expected response data.
-     * @param <T>       The type of the response data.
-     * @return A CompletableFuture that will complete with the response data.
+     * <p>The request will automatically acquire a token from the TokenPool based on
+     * availability and remaining requests.</p>
+     *
+     * <p><b>Request Flow:</b></p>
+     * <ol>
+     *   <li>Check cache (if enabled)</li>
+     *   <li>Check in-flight to prevent duplicates</li>
+     *   <li>Acquire token from TokenPool</li>
+     *   <li>Send HTTP request</li>
+     * </ol>
+     *
+     * @param <T> The response data type
+     * @param endpoint The API endpoint to call
+     * @param query URL path parameters (e.g., {characterId})
+     * @param parameter URL query parameters (e.g., page=1)
+     * @param type The response class to deserialize into
+     * @return CompletableFuture containing the Response when complete
      */
-    public <T> CompletableFuture<Response<T>> enqueueRequest(Endpoint endpoint, Map<String, String> query, Map<String, String> parameter, Class<T> type) {
-        return enqueueRequest(endpoint, query, parameter, type, TokenStore.getInstance().getToken());
+    protected <T> CompletableFuture<Response<T>> enqueueRequest(Endpoint endpoint, Map<String, String> query, Map<String, String> parameter, Class<T> type) {
+        return enqueueRequest(endpoint, query, parameter, type, null);
     }
 
     /**
-     * Enqueues an HTTP request for the given endpoint using a specific authorization token.
-     * <p>
-     * This overload lets callers provide an explicit token (for example when managing
-     * multiple tokens or when testing). The method validates the token, builds the
-     * request URL (replacing path placeholders and appending query parameters), checks
-     * the endpoint cache for a valid cached response, and if none is found delegates to
-     * {@link #sendRequest(String, Class, String)} to perform the actual network call.
-     * </p>
+     * Enqueues a request with a specific token.
      *
-     * @param endpoint  The API endpoint to send the request to.
-     * @param query     Map of path parameters to replace in the endpoint path (may be null).
-     * @param parameter Map of URL query parameters to append to the request (may be null).
-     * @param type      The expected response data type used for JSON deserialization.
-     * @param token     The bearer token to use for authorization. If null, an immediate
-     *                  completed Response with {@link ResponseCode#UNAUTHORIZED} is returned.
-     * @param <T>       The type of the response data.
-     * @return A CompletableFuture that will complete with a {@link Response} containing
-     * the deserialized data on success or an error code/message on failure.
+     * <p>Allows specifying an exact Token object to use for the request, bypassing
+     * the TokenPool selection logic. Useful when a specific token is required.</p>
+     *
+     * <p><b>Parameters:</b></p>
+     * <ul>
+     *   <li>endpoint: API endpoint definition (path, method, etc.)</li>
+     *   <li>query: URL path parameters to substitute into path template</li>
+     *   <li>parameter: URL query string parameters</li>
+     *   <li>type: Response data class for deserialization</li>
+     *   <li>token: Specific Token to use (null to acquire from pool)</li>
+     * </ul>
+     *
+     * @param <T> The response data type
+     * @param endpoint The API endpoint to call
+     * @param query URL path parameters (replaced in endpoint path)
+     * @param parameter URL query string parameters
+     * @param type The response class to deserialize into
+     * @param token Specific Token to use, or null to acquire from TokenPool
+     * @return CompletableFuture containing the Response when complete
      */
-    public <T> CompletableFuture<Response<T>> enqueueRequest(
+    protected <T> CompletableFuture<Response<T>> enqueueRequest(
             Endpoint endpoint,
             Map<String, String> query,
             Map<String, String> parameter,
             Class<T> type,
-            String token
+            Token token
     ) {
-        if (token == null) {
-            return CompletableFuture.completedFuture(
-                    new Response<>(ResponseCode.UNAUTHORIZED, null, "No valid token available")
-            );
-        }
-
         String url = buildUrl(endpoint, query, parameter);
+
         T cached = getCacheData(url, type);
         if (cached != null) {
             return CompletableFuture.completedFuture(
@@ -224,82 +477,117 @@ public class RequestManager {
             );
         }
 
-        return sendRequest(url, type, token);
+        return token == null ? sendAsync(endpoint, url, type) : sendAsync(endpoint, url, type, token);
     }
 
-
     /**
-     * Sends an HTTP request while de-duplicating concurrent calls for the same URL.
-     * If a request for the same URL is already in progress, the existing future is reused.
-     * Otherwise, the request is executed asynchronously, the response is processed,
-     * and the result is cached when applicable.
+     * Sends an asynchronous HTTP request without specifying a token.
      *
-     * @param url   The request URL.
-     * @param type  The expected response type.
-     * @param token The authorization token.
-     * @param <T>   The response payload type.
-     * @return A future that completes with the processed response.
+     * <p><b>Token Acquisition:</b></p>
+     * Acquires a token from TokenPool, which:
+     * <ul>
+     *   <li>Selects the token with most remaining requests (greedy)</li>
+     *   <li>Waits if all tokens are exhausted until one resets</li>
+     * </ul>
+     *
+     * <p><b>Response Handling:</b></p>
+     * Updates token state based on rate limit response headers and handles:
+     * <ul>
+     *   <li>HTTP 429: Schedules retry after reset time</li>
+     *   <li>HTTP 2xx: Returns successful response with data</li>
+     *   <li>HTTP error: Returns error response</li>
+     * </ul>
+     *
+     * @param <T> The response data type
+     * @param endpoint The API endpoint being called (used for scope checking)
+     * @param url The full request URL
+     * @param type The response class for deserialization
+     * @return CompletableFuture containing the Response
+     * @throws IllegalStateException If TokenPool is not initialized
      */
-    private <T> CompletableFuture<Response<T>> sendRequest(String url, Class<T> type, String token) {
-        CompletableFuture<?> inFlight = IN_FLIGHT.get(url);
-        if (inFlight != null) {
-            return (CompletableFuture<Response<T>>) inFlight;
-        }
-
-        CompletableFuture<Response<T>> future = new CompletableFuture<>();
-
-        CompletableFuture<?> existing = IN_FLIGHT.putIfAbsent(url, future);
-        if (existing != null) {
-            return (CompletableFuture<Response<T>>) existing;
-        }
-
+    protected <T> CompletableFuture<Response<T>> sendAsync(Endpoint endpoint, String url, Class<T> type) {
         if (shuttingDown) {
-            IN_FLIGHT.remove(url);
             return CompletableFuture.completedFuture(
                     new Response<>(ResponseCode.BAD_REQUEST, null, "Application shutting down")
             );
         }
 
-        pendingRequests.add(future);
+        if (!this.tokenPool.isInitialized()) {
+            throw new IllegalStateException("TokenPool is not initialized");
+        }
+        metric.incrementInFlight();
+        metric.incrementTotalRequests();
 
-        HttpRequest request = buildRequest(url, token);
-
-        client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                .thenCompose(response -> {
-                    if (shuttingDown) {
-                        return CompletableFuture.failedFuture(
-                                new CancellationException("Application shutting down")
-                        );
+        return this.tokenPool.acquire()
+                .thenCompose(token -> {
+                    if (!token.hasScope(endpoint)) {
+                        return CompletableFuture.completedFuture(new Response<>(
+                                ResponseCode.FORBIDDEN,
+                                null,
+                                "The token does not contain permission for " + endpoint.getScope()
+                        ));
                     }
-                    return handleResponse(response, url, type, token);
+
+                    HttpRequest request = buildRequest(url, token.getKey());
+                    return client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                            .thenCompose(response -> handleResponseAsync(endpoint, token, response, type));
                 })
-                .whenComplete((result, ex) -> {
-                    pendingRequests.remove(future);
-                    IN_FLIGHT.remove(url);
-
-                    if (ex != null) {
-                        future.completeExceptionally(ex);
-                    } else {
-                        future.complete(result);
-
-                        if (ENDPOINT_CACHE != null && result.isSuccessful() && result.getData() instanceof EndpointUpdate) {
-                            EndpointUpdate update = (EndpointUpdate) result.getData();
-                            ENDPOINT_CACHE.put(url, update);
-                            LOGGER.debug("Cached endpoint update for URL: {}", url);
-                        }
+                .whenComplete((response, ex) -> {
+                    if (ex == null && response.isSuccessful()) {
+                        saveCacheData(url, response.getData(), type);
                     }
                 });
 
-        return future;
     }
 
+    /**
+     * Sends an asynchronous HTTP request with a specific token.
+     *
+     * @param <T> The response data type
+     * @param endpoint The API endpoint being called (used for scope checking)
+     * @param url The full request URL
+     * @param type The response class for deserialization
+     * @param token The Token to use for this request
+     * @return CompletableFuture containing the Response
+     */
+    public <T> CompletableFuture<Response<T>> sendAsync(Endpoint endpoint, String url, Class<T> type, Token token) {
+        if (!token.hasScope(endpoint)) {
+            return CompletableFuture.completedFuture(
+                    new Response<>(ResponseCode.FORBIDDEN, null, "The token does not contain permission for " + endpoint.getScope())
+            );
+        }
+
+        metric.incrementTotalRequests();
+        metric.incrementInFlight();
+
+        return token.acquire(AppSettings.getSettings().getUsageLimit())
+                .thenCompose(v -> {
+                    HttpRequest request = buildRequest(url, token.getKey());
+                    return client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                            .thenCompose(response -> handleResponseAsync(endpoint, token, response, type));
+                })
+                .whenComplete((response, ex) -> {
+                    if (ex == null && response.isSuccessful()) {
+                        saveCacheData(url, response.getData(), type);
+                    }
+                });
+    }
 
     /**
-     * Builds an HTTP GET request with the specified URL and authorization token.
+     * Builds an HTTP request with the specified URL and token.
      *
-     * @param url   The URL to send the request to.
-     * @param token The authorization token to be included in the request headers.
-     * @return The constructed HttpRequest object.
+     * <p><b>Headers:</b></p>
+     * <ul>
+     *   <li>Accept: application/json</li>
+     *   <li>User-Agent: Application name and version</li>
+     *   <li>Authorization: Bearer + token</li>
+     * </ul>
+     *
+     * <p><b>Method:</b> Always GET</p>
+     *
+     * @param url The full request URL (query parameters included)
+     * @param token The API token for authorization
+     * @return HttpRequest ready to send
      */
     private HttpRequest buildRequest(String url, String token) {
         HttpRequest.Builder builder = HttpRequest.newBuilder()
@@ -313,160 +601,249 @@ public class RequestManager {
     }
 
     /**
-     * Handles the HTTP response, processes rate-limiting headers, and schedules retries if necessary.
+     * Handles an HTTP response asynchronously, updating token state and processing results.
      *
-     * @param response The HTTP response received.
-     * @param url      The URL of the request.
-     * @param type     The class type of the expected response data.
-     * @param token    The authorization token used in the request.
-     * @param <T>      The type of the response data.
-     * @return A CompletableFuture that will complete with the processed response data.
+     * <p><b>Processing:</b></p>
+     * <ol>
+     *   <li>Extract rate limit info from response headers</li>
+     *   <li>Update token with rate limit reset time</li>
+     *   <li>Check response status code:
+     *       <ul>
+     *           <li>HTTP 429: Schedule retry asynchronously without blocking</li>
+     *           <li>HTTP 2xx: Deserialize and cache result</li>
+     *           <li>HTTP error: Return error response</li>
+     *       </ul>
+     *   </li>
+     * </ol>
+     *
+     * <p><b>Thread Safety:</b></p>
+     * This method is fully asynchronous and does not block any threads. Retries are
+     * scheduled as separate CompletableFutures that integrate into the async chain.
+     * This prevents thread starvation under sustained rate limiting (429 responses).
+     *
+     * <p><b>Rate Limit Header Parsing:</b></p>
+     * Expects headers:
+     * <ul>
+     *   <li>X-RateLimit-Remaining: Number of remaining requests</li>
+     *   <li>X-RateLimit-Reset: Unix timestamp of reset time</li>
+     * </ul>
+     *
+     * @param <T> The response data type
+     * @param endpoint The API endpoint being called (used for scope checking)
+     * @param token The Token used for this request
+     * @param response The HTTP response from the server
+     * @param type The response class for deserialization
+     * @return CompletableFuture completing with Response object with data or error
      */
-    private <T> CompletableFuture<Response<T>> handleResponse(HttpResponse<String> response, String url, Class<T> type, String token) {
+    private <T> CompletableFuture<Response<T>> handleResponseAsync(Endpoint endpoint, Token token, HttpResponse<String> response, Class<T> type) {
         try {
-            String remaining = response.headers().firstValue(X_RATE_LIMIT_REMAINING).orElse("-1");
-            long reset = response.headers().firstValue(X_RATE_LIMIT_RESET).map(Long::parseLong).orElse(Instant.now().getEpochSecond() + 60);
+            metric.decrementInFlight();
 
-            TokenStore.getInstance().updateToken(token, Integer.parseInt(remaining), reset);
+            int remaining = response.headers().firstValue(X_RATE_LIMIT_REMAINING).flatMap(v -> safeParseHeader(v, Integer.class)).orElse(-1);
+            long reset = response.headers().firstValue(X_RATE_LIMIT_RESET).flatMap(v -> safeParseHeader(v, Long.class)).orElse(Instant.now().getEpochSecond() + 60);
 
-            if (Long.parseLong(remaining) < usageLimit) {
-                LOGGER.warn("Usage limit of {} requests reached ({} remaining). Scheduling retry...", usageLimit, remaining);
-                return scheduleRetry(url, type, token, reset);
-            }
+            // remaining gets currently ignored and the tokens get managed by just the reset time and max token count
+            token.updateFromResponse(reset);
 
             if (response.statusCode() == 429) {
-                LOGGER.warn("Received 429 Too Many Requests. Scheduling retry...");
-                return scheduleRetry(url, type, token, reset);
-            }
-
-            if ("0".equals(remaining)) {
-                LOGGER.warn("Rate limit reached! Scheduling retry...");
-                return scheduleRetry(url, type, token, reset);
+                LOGGER.warn("Rate limit hit for token {}. Remaining: {}, Reset at: {}. Scheduling retry asynchronously.",
+                        token.getMaskedKey(), remaining, Instant.ofEpochSecond(reset));
+                metric.incrementRetries();
+                return scheduleRetry(endpoint, response.uri().toString(), type, reset);
             }
 
             if (response.statusCode() >= 200 && response.statusCode() < 300) {
                 T data = mapper.readValue(response.body(), type);
-                return CompletableFuture.completedFuture(new Response<>(ResponseCode.fromCode(response.statusCode()), data, null));
+                return CompletableFuture.completedFuture(
+                    new Response<>(ResponseCode.fromCode(response.statusCode()), data, null)
+                );
             } else {
-                return CompletableFuture.completedFuture(new Response<>(ResponseCode.fromCode(response.statusCode()), null, response.body()));
+                LOGGER.warn("Request with token {} failed at {} with status {}: {}",
+                        token.getMaskedKey(), response.uri().getPath(), response.statusCode(), response.body());
+                metric.incrementFailures();
+                return CompletableFuture.completedFuture(
+                    new Response<>(ResponseCode.fromCode(response.statusCode()), null, response.body())
+                );
             }
         } catch (Exception e) {
-            return CompletableFuture.completedFuture(new Response<>(ResponseCode.BAD_REQUEST, null, e.getMessage()));
+            metric.incrementFailures();
+            return CompletableFuture.completedFuture(
+                new Response<>(ResponseCode.BAD_REQUEST, null, e.getMessage())
+            );
         }
     }
 
     /**
-     * Schedules a retry for the HTTP request after the rate limit reset time.
+     * Safely parses a response header value into the specified type.
      *
-     * @param url   The URL of the request.
-     * @param type  The class type of the expected response data.
-     * @param token The authorization token used in the request.
-     * @param reset The rate limit reset time in seconds since the epoch.
-     * @param <T>   The type of the response data.
-     * @return A CompletableFuture that will complete with the response data after the retry.
+     * <p>Uses Jackson's typeconversion with error handling to prevent crashes
+     * from malformed header values.</p>
+     *
+     * @param <T> The target type
+     * @param value The header value string
+     * @param type The target class
+     * @return Optional containing the parsed value, or empty if parsing fails
      */
-    private <T> CompletableFuture<Response<T>> scheduleRetry(String url, Class<T> type, String token, long reset) {
+    private <T> Optional<T> safeParseHeader(String value, Class<T> type) {
+        try {
+            return Optional.of(mapper.convertValue(value, type));
+        } catch (IllegalArgumentException e) {
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Schedules a retry of a request after the rate limit reset time.
+     *
+     * <p><b>Timing:</b></p>
+     * <ul>
+     *   <li>Calculates delay as: reset_timestamp - current_time + 1 second buffer</li>
+     *   <li>Minimum delay of 10 seconds to avoid tight loops</li>
+     *   <li>Scheduled using ScheduledExecutorService</li>
+     * </ul>
+     *
+     * <p><b>Retry Behavior:</b></p>
+     * The retry will:
+     * <ul>
+     *   <li>Make an identical request after the delay</li>
+     *   <li>Acquire a fresh token from TokenPool</li>
+     *   <li>Return the result via a new CompletableFuture</li>
+     * </ul>
+     *
+     * @param <T> The response data type
+     * @param endpoint The API endpoint being called (used for scope checking)
+     * @param url The URL to retry
+     * @param type The response class
+     * @param reset Unix timestamp when rate limit resets
+     * @return CompletableFuture that completes when retry is done
+     */
+    private <T> CompletableFuture<Response<T>> scheduleRetry(Endpoint endpoint, String url, Class<T> type, long reset) {
         long delay = Math.max(10, reset - Instant.now().getEpochSecond() + 1);
         LOGGER.info("Scheduling retry in {} second/s for URL: {}", delay, url);
         CompletableFuture<Response<T>> future = new CompletableFuture<>();
-        scheduler.schedule(() -> sendRequest(url, type, token).thenAccept(future::complete), delay, TimeUnit.SECONDS);
+        scheduler.schedule(() -> sendAsync(endpoint, url, type).whenComplete((response, ex) -> {
+            if (ex == null && response.isSuccessful()) {
+                saveCacheData(url, response.getData(), type);
+            }
+            future.complete(response);
+        }), delay, TimeUnit.SECONDS);
         return future;
     }
 
     /**
-     * Gets the number of requests currently pending (in-flight).
-     * Useful for monitoring and determining if it's safe to shutdown.
+     * Builds a complete URL from endpoint, query parameters, and query string parameters.
      *
-     * @return The number of pending requests.
-     */
-    public int getPendingRequestCount() {
-        return pendingRequests.size();
-    }
-
-    /**
-     * Waits for all pending requests to complete with a specified timeout.
-     * Useful for graceful shutdown to ensure all in-flight requests finish before terminating.
+     * <p><b>URL Construction:</b></p>
+     * <ol>
+     *   <li>Start with endpoint path</li>
+     *   <li>Replace path parameters from query map (e.g., {characterId})</li>
+     *   <li>URL-encode each parameter value</li>
+     *   <li>Add query string parameters with & and = separators</li>
+     *   <li>URL-encode each query string value</li>
+     * </ol>
      *
-     * @param timeout The maximum time to wait for pending requests to complete.
-     * @param unit    The time unit of the timeout parameter.
-     * @return true if all pending requests completed within the timeout, false if timeout was exceeded.
-     * @throws InterruptedException if the waiting thread is interrupted.
-     */
-    public boolean waitForPending(long timeout, TimeUnit unit) throws InterruptedException {
-        long deadline = System.currentTimeMillis() + unit.toMillis(timeout);
-        while (!pendingRequests.isEmpty() && System.currentTimeMillis() < deadline) {
-            Thread.sleep(100);
-        }
-        return pendingRequests.isEmpty();
-    }
-
-    /**
-     * Builds the full URL for the request by replacing placeholders and appending query parameters.
+     * <p><b>Example:</b></p>
+     * <pre>
+     * Endpoint: /api/character/{characterId}/metrics
+     * Query: {characterId: "abc123"}
+     * Parameters: {page: "1"}
+     * Result: https://api.example.com/character/abc123/metrics?page=1
+     * </pre>
      *
-     * @param endpoint  The API endpoint to send the request to.
-     * @param query     A map of query parameters to be included in the URL.
-     * @param parameter A map of request parameters to be included in the URL.
-     * @return The constructed URL as a string.
+     * @param endpoint The endpoint definition with path template
+     * @param query Path parameters to substitute ({paramName} -&gt; value)
+     * @param parameter Query string parameters to append
+     * @return Complete URL with all parameters encoded
      */
     private String buildUrl(Endpoint endpoint, Map<String, String> query, Map<String, String> parameter) {
         String url = endpoint.getPath();
+
         if (query != null && !query.isEmpty()) {
             for (Map.Entry<String, String> entry : query.entrySet()) {
                 url = url.replace("{" + entry.getKey() + "}", URLEncoder.encode(entry.getValue(), StandardCharsets.UTF_8));
             }
         }
+
         StringBuilder fullUrl = new StringBuilder(url);
         if (parameter != null && !parameter.isEmpty()) {
             fullUrl.append("?");
             parameter.forEach((key, value) -> fullUrl.append(key).append("=").append(URLEncoder.encode(value, StandardCharsets.UTF_8)).append("&"));
-            fullUrl.setLength(fullUrl.length() - 1);
+            fullUrl.setLength(fullUrl.length() - 1);  // Remove trailing &
         }
+
         return fullUrl.toString();
     }
 
     /**
-     * Retrieves the User-Agent string for the HTTP requests.
+     * Builds the User-Agent header value from application configuration.
      *
-     * @return The User-Agent string.
+     * <p><b>Format:</b> APPLICATION_NAME/APPLICATION_VERSION (Contact: CONTACT_EMAIL)</p>
+     *
+     * <p><b>Example:</b> "MyApp/1.0.0 (Contact: support@example.com)"</p>
+     *
+     * @return User-Agent header value
      */
-    private String getUserAgent() {
-        return Configurator.getInstance().get("APPLICATION_NAME") + "/" +
-                Configurator.getInstance().get("APPLICATION_VERSION") + " (Contact: " +
-                Configurator.getInstance().get("CONTACT_EMAIL") + ")";
+    public String getUserAgent() {
+        return AppSettings.getSettings().getApplicationName() + "/" +
+                AppSettings.getSettings().getApplicationVersion() + " (Contact: " +
+                AppSettings.getSettings().getContactEmail() + ")";
     }
 
     /**
-     * Enqueues a group of requests to be executed with controlled delays and token management.
-     * Requests are processed sequentially with automatic stalling when tokens drop below the threshold.
+     * Enqueues a RequestGroup for batch processing.
      *
-     * <p><b>How It Works:</b></p>
+     * <p><b>Behavior:</b></p>
      * <ul>
-     *   <li>Submits the request group to the internal queue</li>
-     *   <li>Background processor handles sequential execution</li>
-     *   <li>Each request stalls if tokens drop below minimum</li>
-     *   <li>Delays are applied between requests</li>
+     *   <li>Accepts a RequestGroup containing multiple requests</li>
+     *   <li>Adds group to processing queue</li>
+     *   <li>Background thread processes batches with configured delays</li>
+     *   <li>Returns list of futures representing each request</li>
      * </ul>
      *
-     * @param group The RequestGroup containing requests and configuration
-     * @return A list of CompletableFutures for each request in the group
+     * <p><b>Processing Features:</b></p>
+     * <ul>
+     *   <li>Batch size limiting: Configurable number of requests per batch</li>
+     *   <li>Delays between requests (within batch)</li>
+     *   <li>Delays between batches</li>
+     *   <li>Minimum token availability checks</li>
+     *   <li>Group cancellation support</li>
+     * </ul>
+     *
+     * @param group RequestGroup containing requests and configuration
+     * @return List of CompletableFutures representing each request
      */
     public List<CompletableFuture<?>> enqueueRequestGroup(RequestGroup group) {
         LOGGER.info("Enqueueing request group '{}' with {} requests, delay={}ms, minTokens={}",
                 group.getGroupId(), group.size(), group.getDelayMs(), group.getMinTokensAllowed());
-        
+
         try {
             groupQueue.put(group);
         } catch (InterruptedException e) {
             LOGGER.error("Failed to enqueue request group: {}", e.getMessage());
             Thread.currentThread().interrupt();
         }
-        
+
         return group.getFutures();
     }
 
     /**
-     * Background process that handles sequential execution of request groups with stalling.
-     * Runs continuously until shutdown, monitoring token availability and applying delays.
+     * Main loop for processing RequestGroups from the queue.
+     *
+     * <p><b>Process:</b></p>
+     * <ol>
+     *   <li>Continuously polls groupQueue for new RequestGroups (1 second timeout)</li>
+     *   <li>For each group:
+     *       <ul>
+     *           <li>Check if cancelled; skip if so</li>
+     *           <li>Process group requests in batches</li>
+     *       </ul>
+     *   </li>
+     *   <li>Exits when shuttingDown flag is set</li>
+     * </ol>
+     *
+     * <p><b>Threading:</b></p>
+     * Runs in dedicated daemon thread (JIMA-RequestGroupProcessor).
+     * Handles InterruptedExceptions gracefully for shutdown.
      */
     private void processRequestGroups() {
         while (!shuttingDown) {
@@ -494,15 +871,36 @@ public class RequestManager {
     }
 
     /**
-     * Processes a single request group sequentially with batching support and token stalling.
+     * Processes a single RequestGroup by executing its requests in batches.
      *
-     * @param group The request group to process
+     * <p><b>Algorithm:</b></p>
+     * <ol>
+     *   <li>Break requests into batches based on configured batch size</li>
+     *   <li>For each batch:
+     *       <ul>
+     *           <li>Log batch information</li>
+     *           <li>Wait for minimum token availability (if configured)</li>
+     *           <li>Execute requests sequentially with delays between</li>
+     *           <li>Handle errors and cancellation</li>
+     *           <li>Wait between batches (if not last batch)</li>
+     *       </ul>
+     *   </li>
+     * </ol>
+     *
+     * <p><b>Configuration Options:</b></p>
+     * <ul>
+     *   <li>batchSize: How many requests per batch</li>
+     *   <li>delayMs: Delay between individual requests (within batch)</li>
+     *   <li>waitMsBetweenBatches: Delay between batches</li>
+     *   <li>minTokensAllowed: Minimum available tokens before processing batch</li>
+     * </ul>
+     *
+     * @param group The RequestGroup to process
      */
     private void processGroup(RequestGroup group) {
         List<Supplier<CompletableFuture<?>>> requests = group.getRequests();
         int batchSize = group.getBatchSize();
-        
-        // Process requests in batches
+
         for (int batchStart = 0; batchStart < requests.size(); batchStart += batchSize) {
             if (group.isCancelled()) {
                 LOGGER.warn("Request group '{}' cancelled, stopping processing", group.getGroupId());
@@ -516,19 +914,16 @@ public class RequestManager {
             LOGGER.info("Processing batch {} of {} in group '{}' (requests {}-{})",
                     batchNumber, totalBatches, group.getGroupId(), batchStart + 1, batchEnd);
 
-            // Process each request in this batch
             for (int i = batchStart; i < batchEnd; i++) {
                 if (group.isCancelled()) {
                     LOGGER.warn("Request group '{}' cancelled, stopping processing", group.getGroupId());
                     break;
                 }
 
-                // Stall until tokens are available
                 if (group.getMinTokensAllowed() > 0) {
                     waitForTokenAvailability(group.getGroupId(), group.getMinTokensAllowed());
                 }
 
-                // Execute the request
                 try {
                     Supplier<CompletableFuture<?>> requestSupplier = requests.get(i);
                     CompletableFuture<?> future = requestSupplier.get();
@@ -537,7 +932,6 @@ public class RequestManager {
                     LOGGER.debug("Executing request {} of {} in group '{}'",
                             i + 1, requests.size(), group.getGroupId());
 
-                    // Wait for request to complete before applying delay
                     future.join();
 
                 } catch (Exception e) {
@@ -546,7 +940,6 @@ public class RequestManager {
                     if (group.isCancelled()) break;
                 }
 
-                // Apply delay between requests within a batch (except after the last one)
                 if (i < batchEnd - 1 && group.getDelayMs() > 0) {
                     try {
                         LOGGER.debug("Applying {}ms delay in group '{}'", group.getDelayMs(), group.getGroupId());
@@ -559,7 +952,6 @@ public class RequestManager {
                 }
             }
 
-            // Apply wait between batches if this is not the last batch
             if (batchEnd < requests.size() && group.getWaitMsBetweenBatches() > 0) {
                 try {
                     LOGGER.info("Batch {} completed. Waiting {}ms before next batch in group '{}'",
@@ -577,18 +969,27 @@ public class RequestManager {
     }
 
     /**
-     * Waits for token availability until the minimum threshold is met.
-     * Blocks until tokens are restored or shutdown is initiated.
+     * Waits for sufficient token availability before processing requests.
      *
-     * @param groupId The request group ID (for logging)
-     * @param minTokensRequired Minimum number of tokens required
+     * <p><b>Behavior:</b></p>
+     * <ul>
+     *   <li>Polls token availability every 5 seconds</li>
+     *   <li>Returns when minTokensRequired tokens are available</li>
+     *   <li>Logs status updates during wait</li>
+     *   <li>Maximum wait of 60 seconds; proceeds anyway after timeout</li>
+     * </ul>
+     *
+     * <p><b>Token Availability Estimation:</b></p>
+     * Uses minimum remaining tokens across all tokens in the pool (conservative estimate).
+     *
+     * @param groupId GroupId for logging purposes
+     * @param minTokensRequired Minimum number of tokens needed
      */
     private void waitForTokenAvailability(String groupId, int minTokensRequired) {
         long startTime = System.currentTimeMillis();
-        long maxWaitMs = 60000; // Max 60 second wait
-        
+        long maxWaitMs = 60000;
+
         while (!shuttingDown && (System.currentTimeMillis() - startTime) < maxWaitMs) {
-            // Try to estimate current token availability by checking TokenStore
             int estimatedTokens = getEstimatedTokenCount();
 
             if (estimatedTokens >= minTokensRequired) {
@@ -601,7 +1002,7 @@ public class RequestManager {
                     groupId, estimatedTokens, minTokensRequired);
 
             try {
-                Thread.sleep(5000); // Check every 5 seconds
+                Thread.sleep(5000);
             } catch (InterruptedException e) {
                 LOGGER.warn("Token wait interrupted for group '{}': {}", groupId, e.getMessage());
                 Thread.currentThread().interrupt();
@@ -616,13 +1017,14 @@ public class RequestManager {
     }
 
     /**
-     * Estimates the current token count across all tokens in the TokenStore.
-     * This reflects the most conservative estimate (minimum remaining across all tokens).
+     * Gets an estimate of current token availability.
      *
-     * @return Minimum remaining tokens across all tokens in the store
+     * <p>Uses the minimum remaining requests across all tokens in the pool.
+     * This is a conservative estimate - actual availability may be higher.</p>
+     *
+     * @return Minimum remaining tokens across the token pool (0 if no tokens)
      */
     private int getEstimatedTokenCount() {
-        return TokenStore.getInstance().getMinRemainingTokens();
+        return this.tokenPool.getMinRemainingTokens();
     }
-
 }

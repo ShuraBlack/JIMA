@@ -35,6 +35,12 @@ public enum ResponseCode {
     FORBIDDEN(403, "Insufficient permissions or account banned"),
 
     /**
+     * Indicates that the requested resource could not be found. This may occur
+     * if the resource does not exist or has been deleted.
+     */
+    NOT_FOUND(404, "Not found"),
+
+    /**
      * Indicates that the request could not be processed due to
      * validation errors. Additional details can be found in the
      * errors field.

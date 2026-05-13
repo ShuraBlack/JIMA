@@ -27,7 +27,8 @@
 - [Usage](#-usage)
   - [Requester](#1-requester--main-entry-point)
   - [RequestManager](#2-requestmanager--request-management)
-  - [TokenStore](#3-tokenstore--token-management)
+  - [TokenPool](#3-tokenpool--token-management)
+  - [Overview Builders](#5-overview-builders--composite-data-fetching)
 - [API Reference](#-supported-api-endpoints)
 - [Project Structure](#-project-structure)
 - [Best Practices](#-best-practices)
@@ -50,15 +51,31 @@ dependencies {
 }
 ```
 
-**2. Create `jima-config.properties`:**
-```properties
-API_KEY=your_token_here
-CONTACT_EMAIL=your_email@example.com
-APPLICATION_VERSION=1.0.0
-APPLICATION_NAME=MyApp
+**2. Create `jima-settings.json`:**
+
+Create a `jima-settings.json` configuration file:
+
+```json
+{
+  "API_KEY": "your_token_here",
+  "CONTACT_EMAIL": "your_email@example.com",
+  "APPLICATION_VERSION": "1.0.0",
+  "APPLICATION_NAME": "MyApp"
+}
 ```
 
-**3. Start using JIMA:**
+**3. Create `tokens.store`:**
+
+If needed, create a PKCS12 KeyStore for token encryption:
+
+```java
+// ONE-TIME SETUP: Run this once to create the secure token store
+List<String> tokens = Arrays.asList("token_1", "token_2");
+TokenUtil.createStore("myPassword123", tokens);
+
+// Application will use tokens from: tokens.store
+// (Place this code in a separate setup utility, not in your main app)
+```
 ```java
 // Fetch world bosses
 var response = Requester.getWorldBosses();
@@ -85,7 +102,7 @@ if (charResponse.isSuccessful()) {
 - 💡 Managed requests without a single line of code
 - ⚡ Easy-to-use request methods for seamless data retrieval
 - 💾 Built-in configuration management for API keys and application settings
-- 🔄 Support for rotating tokens to improve rate limits
+- 🔄 Automatic token management with intelligent rate-limit handling
 - 🌐 Comprehensive support for game features like world bosses, guild conquests, and market history
 - 🔒 Secure token management with automatic rate-limit tracking
 
@@ -132,24 +149,19 @@ dependencies {
 
 ### Configuration
 
-Create a `jima-config.properties` file:
+Create a `jima-settings.json` file in your project root:
 
-```properties
-API_KEY=<your_token>
-CONTACT_EMAIL=<your_email>
-APPLICATION_VERSION=<app_version>
-APPLICATION_NAME=<app_name>
-USE_ROTATING_TOKENS=<true/false>
+```json
+{
+  "API_KEY": "<your_token>",
+  "CONTACT_EMAIL": "<your_email>",
+  "APPLICATION_VERSION": "<app_version>",
+  "APPLICATION_NAME": "<app_name>"
+}
 ```
 
-> [!NOTE]
-> You can also use environment variables instead of a properties file.
-
-> [!TIP]
-> The application auto-generates a config template if it doesn't exist.
-
-> [!IMPORTANT]
-> For rotating tokens, create `jima-tokens.txt` with one token per line.
+> [!WARNING]
+> Keep your `jima-settings.json` and `tokens.store` files secure and add them to `.gitignore`.
 
 > [!CAUTION]
 > Using other players' tokens requires disclosure per [API guidelines](https://web.idle-mmo.com/wiki/more/api). Creating multiple accounts to extend rate limits is not allowed.
@@ -214,9 +226,8 @@ The `RequestManager` is a singleton that handles all HTTP communication with rat
 
 - **Rate-Limiting**: When remaining requests fall below a configured minimum, retries are automatically scheduled
 - **Asynchronous Processing**: All requests are asynchronous using `CompletableFuture`
-- **In flight redirect:** If a request for the same endpoint and parameters is already in flight, it will return the existing `CompletableFuture` instead of making a new request
 - **Error Handling**: Automatic logging and error handling with Log4j2
-- **Configurable**: Log level and usage limits can be adjusted at runtime
+- **Configurable**: Log level can be adjusted at runtime
 
 > [!TIP]
 > You can optionally enable caching for endpoints that contain an endpoint_update_at with `RequestManager.enableEndpointCaching(<recordStats:boolean>)`
@@ -227,36 +238,31 @@ The `RequestManager` is a singleton that handles all HTTP communication with rat
 // Set log level
 RequestManager.setLogLevel(Level.DEBUG);
 
-// Set usage limit (retry when less than X requests remaining)
-RequestManager.getInstance().setUsageLimit(5);
+// Enable endpoint caching with statistics
+RequestManager.enableEndpointCaching(true);
+CacheStats stats = RequestManager.getCacheRecords();
 ```
 
-### 3. TokenStore – Token Management
+### 3. TokenPool – Token Management
 
-The `TokenStore` is a thread-safe singleton for managing multiple API tokens. This is especially useful for higher rate limits.
+The `TokenPool` is an internal manager for handling multiple API tokens with automatic rate-limiting. Token management is handled automatically by the `RequestManager`.
 
 **Features:**
 
-- **Token Rotation**: Tokens are sorted by remaining requests (descending)
+- **Automatic Token Rotation**: Tokens are automatically selected based on remaining requests
 - **Rate-Limit Tracking**: Each token is managed with remaining requests and reset time
-- **Thread-Safe**: Uses `ConcurrentSkipListSet` for safe multi-threaded operations
-- **Auto-Loading**: Has a `loadTokens()` method to load from `jima-tokens.txt`
+- **Thread-Safe**: Safe multi-threaded operations with `AtomicInteger` and synchronized methods
+- **Automatic Reset Tracking**: Tokens automatically reset when the reset time is reached
 
-**Example: Using Rotating Tokens**
+To check token status, you can use the authentication endpoint:
 
 ```java
-// Load tokens (from jima-tokens.txt)
-TokenStore.getInstance().loadTokens();
-
-// Add a token
-TokenStore.getInstance().addToken("your_api_token");
-
-// Get authentications of all stored tokens
-List<Authentication> auths = TokenStore.getInstance().getTokenAuthentications();
-auths.forEach(auth -> {
-    System.out.println("Username: " + auth.getAccount().getUsername());
+var response = Requester.getAuthentication();
+if (response.isSuccessful()) {
+    Authentication auth = response.getData();
     System.out.println("Remaining Requests: " + auth.getRateLimitRemaining());
-});
+    System.out.println("Rate Limit: " + auth.getRateLimit());
+}
 ```
 
 > [!TIP]
@@ -297,7 +303,102 @@ Requester.getMultipleGuildMembers(List<Integer> guildIds);
 Requester.getMultipleItemInspections(List<String> itemIds);
 ```
 
-### 5. PaginationHelper – Automatic Multi-Page Fetching
+### 5. Overview Builders – Composite Data Fetching
+
+Overview Builders provide a fluent API for composing multiple related API requests into a single comprehensive object. They intelligently handle optional data components, error handling, and conditional data fetching.
+
+**Available Builders:**
+
+- **CharacterOverview**: Combines character info with optional metrics, effects, museum, pets, actions, and alts
+- **GuildOverview**: Combines guild info and members with optional conquest data (automatically filtered)
+- **ItemOverview**: Combines item inspection with optional market listings and orders (skipped for non-tradeable items)
+
+**Example: Fetching Complete Character Information**
+
+```java
+// Build a comprehensive character overview with optional components
+Response<CharacterOverview> response = CharacterOverview.Builder
+    .of("characterHash")
+    .withMetric()
+    .withEffects()
+    .withMuseum()
+    .withPets()
+    .build();
+
+if (response.isSuccessful()) {
+    CharacterOverview overview = response.getData();
+    CharacterView character = overview.getCharacter();
+    CharacterMetric metrics = overview.getMetric();
+    CharacterEffects effects = overview.getEffects();
+} else {
+    System.err.println("Error: " + response.getError());
+}
+```
+
+**Example: Guild Overview with Conquest Data**
+
+```java
+Response<GuildOverview> response = GuildOverview.Builder
+    .of(guildId)
+    .withConquest()  // Automatically filters to show only guild's controlled zones
+    .build();
+
+if (response.isSuccessful()) {
+    GuildOverview overview = response.getData();
+    GuildConquest conquest = overview.getConquest();
+    // conquest contains only zones controlled by this guild
+}
+```
+
+**Example: Item Overview with Market Data**
+
+```java
+Response<ItemOverview> response = ItemOverview.Builder
+    .of("itemHash")
+    .withListings()  // Seller order history
+    .withOrders()    // Buyer order history
+    .build();
+
+if (response.isSuccessful()) {
+    ItemOverview overview = response.getData();
+    ItemInspection inspection = overview.getInspection();
+    
+    // Market data only available for tradeable items
+    if (inspection.getItem().isTradeable()) {
+        MarketHistory listings = overview.getListings();
+        MarketHistory orders = overview.getOrders();
+    }
+}
+```
+
+**Key Features:**
+
+- **Fluent API**: Chain methods to select optional data components
+- **Fail-Fast Error Handling**: Returns immediately on first failure, no partial data
+- **Smart Optimization**: Only fetches relevant data (e.g., skips market data for non-tradeable items)
+- **Sequential Execution**: Queued requests execute in order, maintaining consistency
+- **Data Transformation**: Optional transformers for filtering or processing data before assignment
+
+> [!TIP]
+> **Extensibility**: You can create your own custom Overview Builders by extending `OverviewBuilder<T>`. This allows you to build request chains for composite data structures specific to your application needs.
+
+> ```java
+> public class CustomOverview extends OverviewBuilder<MyData> {
+>     public CustomOverview() {
+>         super(new MyData());
+>     }
+>     
+>     public CustomOverview withCustomData() {
+>         this.withGeneric(
+>             () -> Requester.someMethod(),
+>             this.getOverview()::setSomeField
+>         );
+>         return this;
+>     }
+> }
+> ```
+
+### 5. Batch Operations – Parallel Requests
 
 For endpoints that return paginated results, the `PaginationHelper` utility automatically handles fetching all pages and combining results:
 
@@ -337,7 +438,7 @@ PaginationHelper.getTotalCount(ItemType itemType);
 > [!NOTE]
 > PaginationHelper methods make multiple API requests (one per page). For large datasets, this can take significant time. Progress is logged automatically.
 
-### 6. Enum Conversions – Type-Safe String Parsing
+### 7. Enum Conversions – Type-Safe String Parsing
 
 String values from external sources can be safely converted to enum types with case-insensitive matching:
 
@@ -369,7 +470,7 @@ StatType.fromString(String value);            // Converts to StatType, defaults 
 SecondaryStatType.fromString(String value);   // Converts to SecondaryStatType, defaults to UNKNOWN
 ```
 
-### 7. Response Utilities
+### 8. Response Utilities
 
 The `Response<T>` class provides convenient utility methods for handling API responses:
 
@@ -479,7 +580,7 @@ JIMA/
 │   │   ├── ResponseCode.java            # HTTP status codes
 │   │   └── serialization/
 │   │       └── ApiObjectMapper.java     # Jackson configuration
-│   ├── model/                           # Data models for API responses
+│   │   └── model/                           # Data models for API responses
 │   │   ├── auth/                        # Authentication models
 │   │   ├── character/                   # Character data & metrics
 │   │   ├── combat/                      # Bosses, dungeons, enemies
@@ -487,9 +588,11 @@ JIMA/
 │   │   ├── item/                        # Item & market data
 │   │   └── ...                          # Additional models
 │   └── util/
-│       ├── TokenStore.java              # Thread-safe token management
+│       ├── TokenPool.java               # Token pool management with rate-limiting
+│       ├── Token.java                   # Individual token management
 │       ├── PaginationHelper.java         # Multi-page result fetching
-│       ├── Configurator.java            # Config file parsing
+│       ├── AppSettings.java             # Configuration management with settings
+│       ├── TokenUtil.java               # Token encryption & KeyStore utilities
 │       ├── ItemNameMatcher.java         # Fuzzy item matching
 │       └── types/                       # Enum types (ItemType, ClassType, etc.)
 ├── src/test/java/de/shurablack/jima/
@@ -509,11 +612,13 @@ JIMA/
 ### Handle Rate Limits
 
 ```java
-// Configure usage limit to save requests
-RequestManager.getInstance().setUsageLimit(10);  // Retry when less than 10 requests remaining
+// API requests are automatically rate-limited per token
 
-// Use rotating tokens for higher rate limits
-TokenStore.getInstance().loadTokens();
+var response = Requester.getAuthentication();
+if (response.isSuccessful()) {
+    Authentication auth = response.getData();
+    System.out.println("Remaining: " + auth.getRateLimitRemaining());
+}
 ```
 
 ### Error Handling
@@ -578,10 +683,10 @@ This project is licensed under the **Apache License 2.0** — see the [LICENSE](
 
 ### Project
 
-- 📖 [English Docs](README.md) (this file)
-- 🇩🇪 [German Docs](README.de.md)
+- 📖 [Docs](README.md) (this file)
 - 💻 [GitHub Repository](https://github.com/ShuraBlack/JIMA)
 - 📦 [Maven Central](https://mvnrepository.com/artifact/io.github.shurablack/JIMA)
+-
 
 </td>
 <td width="50%">

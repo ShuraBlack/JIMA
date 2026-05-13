@@ -1,6 +1,5 @@
 package de.shurablack.jima.http;
 
-import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import de.shurablack.jima.model.Paged;
 import de.shurablack.jima.model.auth.Authentication;
 import de.shurablack.jima.model.character.CharacterAction;
@@ -17,13 +16,17 @@ import de.shurablack.jima.model.guild.GuildMembers;
 import de.shurablack.jima.model.guild.GuildView;
 import de.shurablack.jima.model.guild.conquest.GuildConquest;
 import de.shurablack.jima.model.guild.conquest.GuildConquestInspection;
+import de.shurablack.jima.model.guild.events.EnergizingPoolInfo;
+import de.shurablack.jima.model.guild.hall.GuildHallView;
 import de.shurablack.jima.model.item.Item;
 import de.shurablack.jima.model.item.ItemInspection;
 import de.shurablack.jima.model.item.Items;
 import de.shurablack.jima.model.item.market.MarketHistory;
 import de.shurablack.jima.model.pet.Listings;
 import de.shurablack.jima.model.shrine.ShrineInfo;
+import de.shurablack.jima.model.world.WorldLocations;
 import de.shurablack.jima.util.ItemNameMatcher;
+import de.shurablack.jima.util.Token;
 import de.shurablack.jima.util.types.ItemType;
 import de.shurablack.jima.util.types.LocationType;
 import de.shurablack.jima.util.types.MarketType;
@@ -47,15 +50,14 @@ import java.util.stream.Collectors;
  * <ul>
  *   <li>All methods are <b>blocking</b> by default (they call {@link java.util.concurrent.CompletableFuture#join()})</li>
  *   <li>Requests are managed by the singleton {@link RequestManager}, which handles HTTP communication</li>
- *   <li>Token management is handled automatically by {@link de.shurablack.jima.util.TokenStore}</li>
+ *   <li>Token management is handled automatically by {@link de.shurablack.jima.util.TokenPool}</li>
  * </ul>
  *
  * <p><b>Rate Limiting &amp; Retry Logic:</b></p>
  * <ul>
  *   <li>The library automatically detects 429 (Too Many Requests) responses</li>
  *   <li>Automatic retries are scheduled based on the {@code X-RateLimit-Reset} header</li>
- *   <li>Token rotation is supported for increased rate limits via {@link de.shurablack.jima.util.TokenStore}</li>
- *   <li>Configure usage limits with {@link RequestManager#setUsageLimit(long)}</li>
+ *   <li>Token rotation is supported for increased rate limits via {@link de.shurablack.jima.util.TokenPool}</li>
  * </ul>
  *
  * <p><b>Error Handling Pattern:</b></p>
@@ -76,13 +78,38 @@ import java.util.stream.Collectors;
  * </pre>
  *
  * @see RequestManager
- * @see de.shurablack.jima.util.TokenStore
+ * @see de.shurablack.jima.util.TokenPool
  * @see Response
  */
 public class Requester {
 
     private Requester() {
         // Private constructor to prevent instantiation
+    }
+
+    /**
+     * Enqueues an individual request with fully customizable parameters.
+     * <b>DANGER</b> Using this method wrongly will result in mapping errors.
+     *
+     * @param endpoint The API url of the request
+     * @param query The insertable values of the route
+     * @param parameter The appending parameters on the request url
+     * @param responseType The expected type of the API response
+     * @return A response containing response type details.
+     * @param <T> The response type
+     */
+    public static <T> Response<T> get(
+            Endpoint endpoint,
+            Map<String, String> query,
+            Map<String, String> parameter,
+            Class<T> responseType
+    ) {
+        return RequestManager.getInstance().enqueueRequest(
+                endpoint,
+                query,
+                parameter,
+                responseType
+        ).join();
     }
 
     /**
@@ -103,13 +130,28 @@ public class Requester {
      * @param token The authentication token.
      * @return A response containing authentication details.
      */
-    public static Response<Authentication> getAuthentication(String token) {
+    public static Response<Authentication> getAuthentication(Token token) {
         return RequestManager.getInstance().enqueueRequest(
                 Endpoint.AUTHENTICATE,
                 null,
                 null,
                 Authentication.class,
                 token
+        ).join();
+    }
+
+    /**
+     * Retrieves all world locations with extended weather forecast data.
+     *
+     * @return A {@code Response<WorldLocations>} containing all world locations with weather data,
+     *         or an error response if the request fails
+     */
+    public static Response<WorldLocations> getWorldLocations() {
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.WORLD_LOCATIONS_LIST,
+                null,
+                null,
+                WorldLocations.class
         ).join();
     }
 
@@ -521,9 +563,9 @@ public class Requester {
      * </pre>
      *
      * @param itemIds A set of hashed item IDs to inspect.
-     * @return A list of Response objects for item inspections, in the same order as input.
+     * @return A list of Response objects for item inspections.
      */
-    public static List<Response<ItemInspection>> getMultipleItemInspections(Set<String> itemIds) {
+    public static ResponseList<ItemInspection> getMultipleItemInspections(Set<String> itemIds) {
         List<CompletableFuture<Response<ItemInspection>>> futures = itemIds.stream()
                 .map(id -> RequestManager.getInstance().enqueueRequest(
                         Endpoint.ITEM_INSPECTION,
@@ -533,9 +575,9 @@ public class Requester {
                 ))
                 .collect(Collectors.toList());
 
-        return futures.stream()
+        return new ResponseList<>(futures.stream()
                 .map(CompletableFuture::join)
-                .collect(Collectors.toList());
+                .collect(Collectors.toList()));
     }
 
     /**
@@ -1052,6 +1094,52 @@ public class Requester {
     }
 
     /**
+     * Fetches the current Energizing Pool status and effects for a guild.
+     *
+     * The API key owner must be a guild member with energizing pool view permission.
+     *
+     * @param id The guild ID to fetch pool information for
+     * @return Response containing EnergizingPoolInfo with status and effects, or error code
+     *
+     * @see EnergizingPoolInfo For response data structure
+     * @see ParallelRequester#getEnergizingPoolInfo(int) For async variant
+     */
+    public static Response<EnergizingPoolInfo> getEnergizingPoolInfo(int id) {
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.GUILD_ENERGIZING_POOL_INFORMATION,
+                Map.of("id", String.valueOf(id)),
+                null,
+                EnergizingPoolInfo.class
+        ).join();
+    }
+
+    /**
+     * Retrieves detailed guild hall information including layout, upgrades, and blueprints.
+     *
+     * <p><b>Authorization:</b></p>
+     * Authorization matches the in-game guild hall view:
+     * <ul>
+     *   <li><b>Own Guild Hall:</b> View allowed if your guild rank has guild hall view permission</li>
+     *   <li><b>Other guild halls:</b> View allowed only if that guild has public guild hall visibility enabled</li>
+     * </ul>
+     *
+     * @param id The guild ID whose guild hall to fetch
+     * @return A response containing guild hall details with upgrades, blueprints, and slot information
+     *
+     * @see GuildHallView For the response structure
+     * @see de.shurablack.jima.model.guild.hall.GuildHall For guild hall data model
+     * @see ParallelRequester#getGuildHall(int) For non-blocking variant
+     */
+    public static Response<GuildHallView> getGuildHall(int id) {
+        return RequestManager.getInstance().enqueueRequest(
+                Endpoint.GUILD_HALL,
+                Map.of("id", String.valueOf(id)),
+                null,
+                GuildHallView.class
+        ).join();
+    }
+
+    /**
      * Retrieves the current guild conquest information.
      * @return A response containing guild conquest details.
      */
@@ -1133,56 +1221,59 @@ public class Requester {
      *   <li>Non-blocking - returns futures immediately while background processing continues</li>
      * </ul>
      *
-     * <p><b>Example 1 - Sequential with delays using Response requests:</b></p>
-     * <pre>
-     * RequestGroup group = new RequestGroup()
-     *     .withDelay(1000)                      // 1-second delay between requests
-     *     .withMinTokensAllowed(15)             // Keep minimum 15 tokens
-     *     .addResponseRequest(() -> Requester.inspectItem("id1"))
-     *     .addResponseRequest(() -> Requester.inspectItem("id2"))
-     *     .addResponseRequest(() -> Requester.inspectItem("id3"));
+      * <p><b>Example 1 - Sequential with delays using Response requests:</b></p>
+      * <pre>{@code
+      * RequestGroup group = new RequestGroup()
+      *     .withDelay(1000)                      // 1-second delay between requests
+      *     .withMinTokensAllowed(15)             // Keep minimum 15 tokens
+      *     .addResponseRequest(() -> Requester.inspectItem("id1"))
+      *     .addResponseRequest(() -> Requester.inspectItem("id2"))
+      *     .addResponseRequest(() -> Requester.inspectItem("id3"));
+      *
+      * List<CompletableFuture<?>> futures = Requester.executeRequestGroup(group);
+      * group.awaitCompletion(5, TimeUnit.MINUTES);
+      * }
+      * </pre>
      *
-     * List&lt;CompletableFuture&lt;?&gt;&gt; futures = Requester.executeRequestGroup(group);
-     * group.awaitCompletion(5, TimeUnit.MINUTES);
-     * </pre>
+      * <p><b>Example 2 - Batch execution with Response requests:</b></p>
+      * <pre>{@code
+      * RequestGroup group = new RequestGroup()
+      *     .withBatchSize(10)                     // Execute 10 requests at a time
+      *     .withWaitMsBetweenBatches(5000)        // Wait 5 seconds between batches
+      *     .withMinTokensAllowed(5)               // Ensure 5 tokens available before each request
+      *     .withDelay(500);                       // 500ms delay within batch
+      *
+      * for (int i = 0; i < 100; i++) {
+      *     group.addResponseRequest(() -> Requester.inspectItem("id" + i));
+      * }
+      * // Execution flow:
+      * // - Execute requests 1-10 (with 500ms delays between)
+      * // - Wait 5 seconds
+      * // - Execute requests 11-20 (with 500ms delays between)
+      * // - Wait 5 seconds
+      * // - ... and so on
+      *
+      * List<CompletableFuture<?>> futures = Requester.executeRequestGroup(group);
+      * group.awaitCompletion(10, TimeUnit.MINUTES);
+      * }
+      * </pre>
      *
-     * <p><b>Example 2 - Batch execution with Response requests:</b></p>
-     * <pre>
-     * RequestGroup group = new RequestGroup()
-     *     .withBatchSize(10)                     // Execute 10 requests at a time
-     *     .withWaitMsBetweenBatches(5000)        // Wait 5 seconds between batches
-     *     .withMinTokensAllowed(5)               // Ensure 5 tokens available before each request
-     *     .withDelay(500);                       // 500ms delay within batch
-     *
-     * for (int i = 0; i < 100; i++) {
-     *     group.addResponseRequest(() -> Requester.inspectItem("id" + i));
-     * }
-     * // Execution flow:
-     * // - Execute requests 1-10 (with 500ms delays between)
-     * // - Wait 5 seconds
-     * // - Execute requests 11-20 (with 500ms delays between)
-     * // - Wait 5 seconds
-     * // - ... and so on
-     *
-     * List&lt;CompletableFuture&lt;?&gt;&gt; futures = Requester.executeRequestGroup(group);
-     * group.awaitCompletion(10, TimeUnit.MINUTES);
-     * </pre>
-     *
-     * <p><b>Example 3 - Batch execution with token recovery stalling:</b></p>
-     * <pre>
-     * RequestGroup group = new RequestGroup()
-     *     .withBatchSize(15)                     // Execute 15 requests in each batch
-     *     .withWaitMsBetweenBatches(0)           // No explicit wait (relies on token stalling)
-     *     .withMinTokensAllowed(10);             // Stall next request if tokens &lt; 10
-     *
-     * for (int i = 0; i < 100; i++) {
-     *     group.addResponseRequest(() -> Requester.getCharacter("charId" + i));
-     * }
-     * // Execution flow:
-     * // - Execute batch 1 (requests 1-15)
-     * // - If tokens drop below 10 before batch 2, stall until tokens recover
-     * // - Resume with batch 2, and so on
-     * </pre>
+      * <p><b>Example 3 - Batch execution with token recovery stalling:</b></p>
+      * <pre>{@code
+      * RequestGroup group = new RequestGroup()
+      *     .withBatchSize(15)                     // Execute 15 requests in each batch
+      *     .withWaitMsBetweenBatches(0)           // No explicit wait (relies on token stalling)
+      *     .withMinTokensAllowed(10);             // Stall next request if tokens < 10
+      *
+      * for (int i = 0; i < 100; i++) {
+      *     group.addResponseRequest(() -> Requester.getCharacter("charId" + i));
+      * }
+      * // Execution flow:
+      * // - Execute batch 1 (requests 1-15)
+      * // - If tokens drop below 10 before batch 2, stall until tokens recover
+      * // - Resume with batch 2, and so on
+      * }
+      * </pre>
      *
      * @param group The RequestGroup containing requests to execute
      * @return A list of CompletableFutures for each request in the group.
@@ -1212,25 +1303,26 @@ public class Requester {
      *   <li>Returns false if timeout is exceeded (rather than throwing)</li>
      * </ul>
      *
-     * <p><b>Example - Simple blocking execution:</b></p>
-     * <pre>
-     * RequestGroup group = new RequestGroup()
-     *     .withBatchSize(10)
-     *     .withWaitMsBetweenBatches(5000)
-     *     .withMinTokensAllowed(10);
-     *
-     * for (int i = 0; i < 100; i++) {
-     *     group.addResponseRequest(() -> Requester.inspectItem("id" + i));
-     * }
-     *
-     * // Blocks until all 100 requests complete (or 10 minutes pass)
-     * boolean success = Requester.executeRequestGroupBlocking(group);
-     * if (success) {
-     *     System.out.println("All requests completed!");
-     * } else {
-     *     System.err.println("Timeout: requests did not complete within 10 minutes");
-     * }
-     * </pre>
+      * <p><b>Example - Simple blocking execution:</b></p>
+      * <pre>{@code
+      * RequestGroup group = new RequestGroup()
+      *     .withBatchSize(10)
+      *     .withWaitMsBetweenBatches(5000)
+      *     .withMinTokensAllowed(10);
+      *
+      * for (int i = 0; i < 100; i++) {
+      *     group.addResponseRequest(() -> Requester.inspectItem("id" + i));
+      * }
+      *
+      * // Blocks until all 100 requests complete (or 10 minutes pass)
+      * boolean success = Requester.executeRequestGroupBlocking(group);
+      * if (success) {
+      *     System.out.println("All requests completed!");
+      * } else {
+      *     System.err.println("Timeout: requests did not complete within 10 minutes");
+      * }
+      * }
+      * </pre>
      *
      * @param group The RequestGroup containing requests to execute
      * @return true if all requests completed within 10 minutes,
@@ -1260,13 +1352,13 @@ public class Requester {
      *   <li>Throws InterruptedException if the waiting thread is interrupted</li>
      * </ul>
      *
-     * <p><b>Example:</b></p>
-     * <pre>
-     * RequestGroup group = new RequestGroup()
-     *     .withBatchSize(20)
-     *     .withWaitMsBetweenBatches(2000)
-     *     .addResponseRequest(() -> Requester.getWorldBosses())
-     *     .addResponseRequest(() -> Requester.getDungeons());
+      * <p><b>Example:</b></p>
+      * <pre>
+      * RequestGroup group = new RequestGroup()
+      *     .withBatchSize(20)
+      *     .withWaitMsBetweenBatches(2000)
+      *     .addResponseRequest(() -&gt; Requester.getWorldBosses())
+      *     .addResponseRequest(() -&gt; Requester.getDungeons());
      *
      * try {
      *     // Wait up to 5 minutes for completion
@@ -1297,3 +1389,5 @@ public class Requester {
     }
 
 }
+
+

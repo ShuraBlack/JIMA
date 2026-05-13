@@ -22,6 +22,11 @@ public enum Endpoint {
     AUTHENTICATE(BASE_URL.path + "/auth/check", "v1.auth.check"),
 
     /**
+     * Endpoint for world locations/nodes on the map.
+     */
+    WORLD_LOCATIONS_LIST(BASE_URL.path + "/world/locations/list", "v1.world.locations.list"),
+
+    /**
      * Endpoint for retrieving the list of world bosses.
      */
     WORLD_BOSSES(BASE_URL.path + "/combat/world_bosses/list", "v1.combat.world_bosses.list"),
@@ -100,6 +105,16 @@ public enum Endpoint {
      * Endpoint for retrieving guild members.
      */
     GUILD_MEMBERS(BASE_URL.path + "/guild/{id}/members", "v1.guild.members"),
+
+    /**
+     * Endpoint for retrieving guild specific information about the energizing pool.
+     */
+    GUILD_ENERGIZING_POOL_INFORMATION(BASE_URL.path + "/guild/{id}/energizing-pool/information", "v1.guild.energizing_pool.information"),
+
+    /**
+     * Endpoint for retrieving precise information about the guild hall and all components.
+     */
+    GUILD_HALL(BASE_URL.path + "/guild/{id}/hall", "v1.guild.hall"),
 
     /**
      * Endpoint for viewing guild conquests.

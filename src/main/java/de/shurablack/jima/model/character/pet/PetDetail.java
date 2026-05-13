@@ -1,16 +1,62 @@
 package de.shurablack.jima.model.character.pet;
 
-import de.shurablack.jima.model.pet.Evolution;
-import de.shurablack.jima.util.types.Quality;
+import de.shurablack.jima.model.shared.TimeRange;
 import de.shurablack.jima.util.Nullable;
+import de.shurablack.jima.util.types.Quality;
+import de.shurablack.jima.util.types.SecondaryStatType;
 import lombok.*;
 
 import java.time.LocalDateTime;
 import java.util.Map;
 
+
 /**
- * Represents detailed information about a pet.
- * This class contains various attributes of a pet, including its ID, name, stats, health, happiness, and more.
+ * Comprehensive detail information for a single pet companion.
+ *
+ * <p><b>Overview:</b> PetDetail aggregates all information about a pet including
+ * identification, attributes, stats, evolution progress, and active periods.</p>
+ *
+ * <p><b>Pet Identification:</b></p>
+ * <ul>
+ *   <li>{@code id} - Unique instance ID for this specific pet</li>
+ *   <li>{@code name} - Default pet name (e.g., species name)</li>
+ *   <li>{@code customName} - Player-assigned nickname (optional)</li>
+ *   <li>{@code petId} - Template/species ID</li>
+ *   <li>{@code imageUrl} - Pet artwork or icon URL</li>
+ * </ul>
+ *
+ * <p><b>Pet Attributes:</b></p>
+ * <ul>
+ *   <li>{@code level} - Current combat level (affects stats and abilities)</li>
+ *   <li>{@code experience} - Experience toward next level</li>
+ *   <li>{@code totalExperience} - Cumulative experience earned</li>
+ *   <li>{@code quality} - Rarity tier (Common, Rare, Epic, etc.)</li>
+ *   <li>{@code stats} - Secondary stat map (Attack, Defense, Speed, etc.)</li>
+ * </ul>
+ *
+ * <p><b>Pet Status Records:</b></p>
+ * <ul>
+ *   <li>{@code health} - Health points (HP) tracking</li>
+ *   <li>{@code happiness} - Pet happiness level (affects performance)</li>
+ *   <li>{@code hunger} - Pet hunger state (needs feeding)</li>
+ * </ul>
+ *
+ * <p><b>Pet Progression:</b></p>
+ * <ul>
+ *   <li>{@code evolution} - Evolution state and available bonuses</li>
+ *   <li>{@code location} - Current location in the game world</li>
+ * </ul>
+ *
+ * <p><b>Activity Tracking:</b></p>
+ * <ul>
+ *   <li>{@code battle} - Active battle cooldown period</li>
+ *   <li>{@code createdAt} - When the pet was acquired or created</li>
+ * </ul>
+ *
+ * @see Record For health, happiness, and hunger detail
+ * @see Evolution For evolution system details
+ * @see Location For pet location information
+ * @see TimeRange For battle cooldown tracking
  */
 @AllArgsConstructor
 @NoArgsConstructor
@@ -20,83 +66,42 @@ import java.util.Map;
 @ToString
 public class PetDetail {
 
-    /**
-     * The unique identifier for the pet.
-     */
-    private int id;
+    private Integer id;
 
-    /**
-     * The name of the pet.
-     */
     private String name;
 
-    /**
-     * The custom name of the pet, if any.
-     * This field is nullable.
-     */
     @Nullable
     private String customName;
 
-    /**
-     * The identifier for the pet type.
-     */
     private int petId;
 
-    /**
-     * The URL of the pet's image.
-     */
+    private String petName;
+
     private String imageUrl;
 
-    /**
-     * The level of the pet.
-     */
     private int level;
 
-    /**
-     * The experience points of the pet.
-     */
-    private long experience;
+    private int experience;
 
-    /**
-     * The quality of the pet.
-     */
+    private int totalExperience;
+
     private Quality quality;
 
-    /**
-     * A map containing the pet's stats, where the key is the stat name and the value is the stat value.
-     */
-    private Map<String, Integer> stats;
+    private Map<SecondaryStatType, Integer> stats;
 
-    /**
-     * The health details of the pet.
-     */
-    private Health health;
+    private Record health;
 
-    /**
-     * Indicates whether the pet is currently equipped.
-     */
+    private Record happiness;
+
+    private Record hunger;
+
     private boolean equipped;
 
-    /**
-     * The battle details of the pet, if it is engaged in a battle.
-     * This field is nullable.
-     */
-    @Nullable
-    private Battle battle;
+    private TimeRange battle;
 
-    /**
-     * The evolution details of the pet.
-     */
     private Evolution evolution;
 
-    /**
-     * The location details associated with the pet.
-     */
     private Location location;
 
-    /**
-     * The timestamp when the pet was created.
-     */
     private LocalDateTime createdAt;
-
 }

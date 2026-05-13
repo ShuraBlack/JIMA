@@ -12,6 +12,11 @@ import lombok.*;
 public class Member {
 
     /**
+     * The hashed ID of the member.
+     */
+    private String hashedId;
+
+    /**
      * The name of the guild member.
      */
     private String name;

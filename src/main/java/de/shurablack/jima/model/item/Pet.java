@@ -16,7 +16,12 @@ import lombok.*;
 public class Pet {
 
     /**
-     * The unique hashed identifier of the pet.
+     * The unique identifier of the pet.
+     */
+    private int id;
+
+    /**
+     * The unique hashed identifier of the pet type.
      */
     private String hashedId;
 
